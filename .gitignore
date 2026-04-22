@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual env
+venv/
+.env/
+
+# PyInstaller
+build/
+dist/
+*.spec  # ← 이건 선택 (아래 설명 참고)
+
+# Executables
+*.exe
+*.zip
+
+# OS
+.DS_Store
+Thumbs.db
