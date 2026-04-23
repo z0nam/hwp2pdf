@@ -5,16 +5,23 @@ __pycache__/
 
 # Virtual env
 venv/
+.venv/
 .env/
 
 # PyInstaller
 build/
 dist/
-*.spec  # ← 이건 선택 (아래 설명 참고)
 
 # Executables
 *.exe
 *.zip
+release/
+
+# Runtime outputs
+logs/
+*.log
+hwp2pdf_log.csv
+hwp_to_pdf_log_safe.csv
 
 # OS
 .DS_Store
