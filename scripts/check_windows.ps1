@@ -44,6 +44,13 @@ try {
         $Failed = $true
     }
 
+    $DocxResult = & python -c "import sys; sys.path.insert(0, 'src'); from hwp2pdf.app import output_extension; print(output_extension('DOCX'))"
+    $DocxOk = $LASTEXITCODE -eq 0 -and $DocxResult -eq ".docx"
+    Write-Check "DOCX output wiring" $DocxOk $DocxResult
+    if (-not $DocxOk) {
+        $Failed = $true
+    }
+
     & python -c "import win32com.client, pythoncom; print('pywin32 import ok')" 2>$null
     $Pywin32Ok = $LASTEXITCODE -eq 0
     Write-Check "pywin32 import" $Pywin32Ok

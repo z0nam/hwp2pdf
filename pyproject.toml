@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hwp2pdf"
 version = "0.2.0"
-description = "Windows Hancom Office COM based HWP/HWPX/DOCX to PDF converter"
+description = "Windows Hancom Office COM based HWP/HWPX to PDF/DOCX converter"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

@@ -1,3 +1,3 @@
-"""HWP/HWPX/DOCX to PDF converter package."""
+"""HWP/HWPX to PDF/DOCX converter package."""
 
-__version__ = "0.2.0"
+from hwp2pdf.version import __version__
