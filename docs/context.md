@@ -39,6 +39,8 @@ The older `src/hwp_pdf_converter_app_safe.py` path remains as a compatibility en
 - Overwrite or skip existing output files
 - Safe temp conversion through `C:\temp\hwp_convert_safe`
 - Progress UI
+- Estimated HWP/HWPX file count below the selected target path
+- Colored on-screen logs for failures and warning states
 - Stop request between files
 - CSV conversion log: `hwp2pdf_log.csv`
 
@@ -177,6 +179,8 @@ modules can still show prompts for some environments.
 The app attempts to register Hancom's file path checker module with `RegisterModule`, but if
 Hancom still asks whether to allow automation access, choose the permanent allow option.
 Otherwise `Open()` can block while waiting for the prompt.
+The prompt should not be bypassed with auto-click automation. Hancom's documented path is to
+install/register the automation security approval module and then call `RegisterModule`.
 
 ### Concurrency
 

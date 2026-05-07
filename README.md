@@ -157,6 +157,17 @@ The same version is shown in the app window title.
 
 ## 버전 히스토리 / Version History
 
+### 2026.05.07.1
+
+- 실패 로그를 빨간색으로, 건너뜀/중단 로그를 경고색으로 표시합니다.
+- **Yes**로 실행 중인 HWP를 종료하기 전에 프로세스를 다시 확인하여 사용자가 이미 닫은 경우 그대로 변환을 진행합니다.
+- 폴더 또는 파일 선택 시 입력창 아래에 변환 예상 HWP/HWPX 파일 수를 표시합니다.
+- 한컴 자동화 보안 허용 팝업은 공식 보안 승인 모듈 등록이 필요하므로, 앱은 기존 `RegisterModule` 호출을 유지하고 자동 클릭 방식의 우회는 하지 않습니다.
+- Failure logs are shown in red, while skipped/stopped logs use a warning color.
+- Before force-closing HWP after **Yes**, the app checks the process list again and continues if the user already closed it manually.
+- Shows the estimated number of HWP/HWPX files below the target path when a folder or file is selected.
+- Hancom automation security prompts require the official security approval module registration, so the app keeps using `RegisterModule` and does not bypass prompts by auto-clicking dialogs.
+
 ### 2026.05.06.4
 
 - 앱 기본 언어를 한국어로 변경하고, 우측 상단에서 **한국어 / English**를 전환할 수 있도록 했습니다. UI, 팝업, 로그, CSV 메시지가 선택 언어를 따릅니다.

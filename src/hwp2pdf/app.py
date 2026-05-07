@@ -41,6 +41,8 @@ LANGUAGE_CODES = {label: code for code, label in LANGUAGE_LABELS.items()}
 TEXT = {
     "ko": {
         "target_label": "대상 폴더 또는 파일",
+        "file_count_estimate": "변환 예상 파일: 총 {count}개",
+        "file_count_unavailable": "변환 예상 파일 수를 확인할 수 없습니다.",
         "browse_folder": "폴더 선택...",
         "pick_file": "파일 선택...",
         "options": "옵션",
@@ -80,6 +82,7 @@ TEXT = {
             "취소: 중단"
         ),
         "hwp_kill_failed": "HWP를 자동으로 종료하지 못했습니다.\n\n작업 관리자에서 Hwp.exe를 닫은 뒤 다시 시작하세요.",
+        "hwp_closed_already": "HWP 프로세스가 이미 종료되어 계속 진행합니다.",
         "starting_conversion": "변환 시작...",
         "scanning": "파일 검색 중...",
         "no_files": "{extensions} 파일을 찾지 못했습니다.",
@@ -103,6 +106,7 @@ TEXT = {
         "skipped_exists": "{format} 파일이 이미 있어 건너뜀",
         "skipped_log": "건너뜀 {format} -> {path}",
         "failed_log": "실패 {format} -> {path} | {message}",
+        "error_log": "오류: {message}",
         "ok_log": "성공 {format} ({actual}) -> {path}",
         "progress_skipped": "[{current}/{total}] 건너뜀",
         "progress_failed": "[{current}/{total}] 실패",
@@ -143,6 +147,8 @@ TEXT = {
     },
     "en": {
         "target_label": "Root folder or file",
+        "file_count_estimate": "Estimated files to convert: {count}",
+        "file_count_unavailable": "Could not estimate the number of files to convert.",
         "browse_folder": "Browse folder...",
         "pick_file": "Pick file...",
         "options": "Options",
@@ -182,6 +188,7 @@ TEXT = {
             "Cancel: stop"
         ),
         "hwp_kill_failed": "Could not close HWP automatically.\n\nClose Hwp.exe from Task Manager, then start conversion again.",
+        "hwp_closed_already": "HWP process is already closed. Continuing.",
         "starting_conversion": "Starting conversion...",
         "scanning": "Scanning files...",
         "no_files": "No {extensions} files found.",
@@ -205,6 +212,7 @@ TEXT = {
         "skipped_exists": "Skipped because {format} already exists",
         "skipped_log": "SKIPPED {format} -> {path}",
         "failed_log": "FAILED {format} -> {path} | {message}",
+        "error_log": "ERROR: {message}",
         "ok_log": "OK {format} ({actual}) -> {path}",
         "progress_skipped": "[{current}/{total}] Skipped",
         "progress_failed": "[{current}/{total}] Failed",
@@ -465,10 +473,12 @@ class ConverterApp:
         self.stop_requested = False
         self.is_running = False
         self.recursive_check = None
+        self.file_count_var = tk.StringVar()
         self.ui = {}
 
         self._build_ui()
         self.folder_var.trace_add("write", self._on_target_path_changed)
+        self.recursive_var.trace_add("write", self._on_target_path_changed)
         self._poll_log_queue()
 
     def lang(self):
@@ -512,6 +522,8 @@ class ConverterApp:
         )
         self.ui["pick_btn"] = ttk.Button(path_row, command=self.pick_file_folder)
         self.ui["pick_btn"].grid(row=0, column=2, sticky="e")
+        self.ui["file_count_label"] = ttk.Label(top, textvariable=self.file_count_var)
+        self.ui["file_count_label"].grid(row=2, column=0, sticky="w", pady=(4, 0))
 
         opts = ttk.LabelFrame(self.root, padding=12)
         self.ui["opts"] = opts
@@ -568,6 +580,8 @@ class ConverterApp:
         self.ui["log_label"] = ttk.Label(log_frame)
         self.ui["log_label"].pack(anchor="w")
         self.log_text = tk.Text(log_frame, wrap="word")
+        self.log_text.tag_configure("error", foreground="#b00020")
+        self.log_text.tag_configure("warning", foreground="#8a5a00")
         self.log_text.pack(side="left", fill="both", expand=True)
 
         log_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
@@ -604,6 +618,7 @@ class ConverterApp:
         self.ui["notes_label"].configure(text=self.tr("notes"))
         if not self.is_running:
             self.progress_label_var.set(self.tr("ready"))
+        self._update_file_count_estimate()
 
     def browse_folder(self):
         initial_dir = self.folder_var.get().strip()
@@ -641,10 +656,35 @@ class ConverterApp:
 
         target = self.folder_var.get().strip()
         if target and os.path.isfile(target):
-            self.recursive_var.set(False)
+            if self.recursive_var.get():
+                self.recursive_var.set(False)
             self.recursive_check.state(["disabled"])
         else:
             self.recursive_check.state(["!disabled"])
+        self._update_file_count_estimate()
+
+    def _update_file_count_estimate(self):
+        if not hasattr(self, "file_count_var"):
+            return
+
+        target = self.folder_var.get().strip()
+        if not target:
+            self.file_count_var.set("")
+            return
+
+        try:
+            if os.path.isfile(target):
+                count = 1 if Path(target).suffix.lower() in enabled_extensions() else 0
+            elif os.path.isdir(target):
+                count = len(self.collect_files(target, self.recursive_var.get()))
+            else:
+                self.file_count_var.set("")
+                return
+        except Exception:
+            self.file_count_var.set(self.tr("file_count_unavailable"))
+            return
+
+        self.file_count_var.set(self.tr("file_count_estimate", count=count))
 
     def open_selected_folder(self):
         target = self.folder_var.get().strip()
@@ -655,8 +695,12 @@ class ConverterApp:
         else:
             messagebox.showwarning(APP_TITLE, self.tr("invalid_open_target"))
 
-    def append_log(self, text: str):
-        self.log_text.insert("end", text + "\n")
+    def append_log(self, text: str, level: str = "info"):
+        tag = level if level in {"error", "warning"} else None
+        if tag:
+            self.log_text.insert("end", text + "\n", tag)
+        else:
+            self.log_text.insert("end", text + "\n")
         self.log_text.see("end")
 
     def request_stop(self):
@@ -669,7 +713,11 @@ class ConverterApp:
                 kind, payload = self.log_queue.get_nowait()
 
                 if kind == "log":
-                    self.append_log(payload)
+                    if isinstance(payload, tuple):
+                        text, level = payload
+                        self.append_log(text, level)
+                    else:
+                        self.append_log(payload)
 
                 elif kind == "progress":
                     current, total, label = payload
@@ -699,6 +747,7 @@ class ConverterApp:
                     self.start_btn.config(state="normal")
                     self.stop_btn.config(state="disabled")
                     self.progress_label_var.set(self.tr("error_status"))
+                    self.append_log(self.tr("error_log", message=payload), "error")
                     messagebox.showerror(APP_TITLE, payload)
 
         except queue.Empty:
@@ -743,13 +792,28 @@ class ConverterApp:
             if answer is None:
                 return
             if answer is True:
-                killed = kill_hwp()
-                if not killed:
-                    messagebox.showerror(
-                        APP_TITLE,
-                        self.tr("hwp_kill_failed"),
-                    )
-                    return
+                hwp_processes = get_hwp_processes()
+                if not hwp_processes:
+                    self.append_log(self.tr("hwp_closed_already"))
+                elif not kill_hwp():
+                    hwp_processes = get_hwp_processes()
+                    if not hwp_processes:
+                        self.append_log(self.tr("hwp_closed_already"))
+                    else:
+                        messagebox.showerror(
+                            APP_TITLE,
+                            self.tr("hwp_kill_failed"),
+                        )
+                        return
+                else:
+                    hwp_processes = get_hwp_processes()
+                    if hwp_processes:
+                        process_detail = ", ".join(f"PID {process['pid']}" for process in hwp_processes)
+                        messagebox.showerror(
+                            APP_TITLE,
+                            self.tr("hwp_kill_failed") + f"\n\n{process_detail}",
+                        )
+                        return
 
         self.stop_requested = False
         self.is_running = True
@@ -881,7 +945,7 @@ class ConverterApp:
                         for output_format in output_formats:
                             if self.stop_requested:
                                 writer.writerow(["STOPPED", "", "", translate(lang, "stopped_csv")])
-                                self.log_queue.put(("log", translate(lang, "stopped")))
+                                self.log_queue.put(("log", (translate(lang, "stopped"), "warning")))
                                 stopped = True
                                 break
 
@@ -915,7 +979,15 @@ class ConverterApp:
                                     msg = translate(lang, "skipped_exists", format=output_format)
                                     writer.writerow(["SKIPPED", str(src_path), str(output_path), msg])
                                     self.log_queue.put(
-                                        ("log", translate(lang, "skipped_log", format=output_format, path=output_path))
+                                        (
+                                            "log",
+                                            (
+                                                translate(
+                                                    lang, "skipped_log", format=output_format, path=output_path
+                                                ),
+                                                "warning",
+                                            ),
+                                        )
                                     )
                                     self.log_queue.put(
                                         (
@@ -938,12 +1010,15 @@ class ConverterApp:
                                     self.log_queue.put(
                                         (
                                             "log",
-                                            translate(
-                                                lang,
-                                                "failed_log",
-                                                format=output_format,
-                                                path=src_path,
-                                                message=blocked_reason,
+                                            (
+                                                translate(
+                                                    lang,
+                                                    "failed_log",
+                                                    format=output_format,
+                                                    path=src_path,
+                                                    message=blocked_reason,
+                                                ),
+                                                "error",
                                             ),
                                         )
                                     )
@@ -1018,8 +1093,11 @@ class ConverterApp:
                                 self.log_queue.put(
                                     (
                                         "log",
-                                        translate(
-                                            lang, "failed_log", format=output_format, path=src_path, message=e
+                                        (
+                                            translate(
+                                                lang, "failed_log", format=output_format, path=src_path, message=e
+                                            ),
+                                            "error",
                                         ),
                                     )
                                 )
@@ -1067,7 +1145,7 @@ class ConverterApp:
                     pass
                 except Exception as e:
                     all_success = False
-                    self.log_queue.put(("log", translate(lang, "remove_log_failed", message=e)))
+                    self.log_queue.put(("log", (translate(lang, "remove_log_failed", message=e), "warning")))
 
             self.log_queue.put(("done", (success, failed, skipped, log_csv, all_success)))
 
