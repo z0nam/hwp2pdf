@@ -23,6 +23,10 @@ logs/
 *.log
 hwp2pdf_log.csv
 hwp_to_pdf_log_safe.csv
+test/
+
+# Local tool settings
+.claude/
 
 # OS
 .DS_Store

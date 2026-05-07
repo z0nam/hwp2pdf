@@ -6,8 +6,9 @@ This is a Windows GUI converter that uses Hancom Office COM automation to conver
 
 ## 주요 기능 / Features
 
-- HWP/HWPX 파일을 PDF 또는 DOCX로 일괄 변환
+- HWP/HWPX 파일을 PDF 또는 DOCX로 단일 파일 또는 폴더 일괄 변환
 - 출력 형식 PDF/DOCX 중 하나 또는 둘 다 선택
+- 기본 한국어 UI/로그와 영어 전환
 - 하위 폴더 포함/제외
 - 기존 PDF 덮어쓰기 또는 건너뛰기
 - 저장 전 한쪽 보기 강제 적용 옵션
@@ -15,8 +16,9 @@ This is a Windows GUI converter that uses Hancom Office COM automation to conver
 - 안전한 임시 폴더 변환 모드
 - 변환 결과 CSV 로그 생성
 
-- Batch convert HWP/HWPX files to PDF or DOCX
+- Convert one HWP/HWPX file or batch convert a folder to PDF or DOCX
 - Select PDF output, DOCX output, or both
+- Korean UI/logs by default with an English switch
 - Include or exclude subfolders
 - Overwrite or skip existing output files
 - Option to force one-page view before export
@@ -85,15 +87,17 @@ The app does not need a separate installer or an `_internal` folder. Run the ext
 
 ## 변환 방법 / How To Convert
 
-1. **Browse folder...**로 변환 대상 폴더를 직접 선택합니다. 파일 목록을 보면서 고르고 싶으면 **Pick file...**을 눌러 대상 폴더 안의 `.hwp`, `.hwpx`, `.pdf`, `.docx` 파일 중 아무 파일이나 선택합니다.
+1. 폴더 전체를 변환하려면 **Browse folder...**로 변환 대상 폴더를 선택합니다. 파일 하나만 변환하려면 **Pick file...**로 `.hwp` 또는 `.hwpx` 파일을 선택합니다.
 2. **Output**에서 **PDF**, **DOCX** 중 하나 또는 둘 다 선택합니다.
-3. 하위 폴더 포함 여부, 기존 출력 파일 덮어쓰기 여부, **Force one-page view before export** 옵션을 선택합니다.
-4. **Start conversion**을 누릅니다.
+3. 폴더를 선택한 경우 하위 폴더 포함 여부를 선택합니다. 파일을 선택한 경우 **Include subfolders**는 비활성화되고 선택한 파일만 변환합니다.
+4. 기존 출력 파일 덮어쓰기 여부, **Force one-page view before export** 옵션을 선택합니다.
+5. **Start conversion**을 누릅니다.
 
-1. Click **Browse folder...** to select the target folder directly. To inspect files first, click **Pick file...** and select any `.hwp`, `.hwpx`, `.pdf`, or `.docx` file in the target folder.
+1. To convert a whole folder, click **Browse folder...** and select the target folder. To convert one file, click **Pick file...** and select an `.hwp` or `.hwpx` file.
 2. Select **PDF**, **DOCX**, or both under **Output**.
-3. Choose whether to include subfolders, overwrite existing output files, and force one-page view before export.
-4. Click **Start conversion**.
+3. If a folder is selected, choose whether to include subfolders. If a file is selected, **Include subfolders** is disabled and only that file is converted.
+4. Choose whether to overwrite existing output files and force one-page view before export.
+5. Click **Start conversion**.
 
 PDF 또는 DOCX 파일은 원본 문서 옆에 생성됩니다. 선택한 루트 폴더에는 `hwp2pdf_log.csv` 변환 로그가 생성됩니다.
 
@@ -152,6 +156,26 @@ The version number uses the build date and the build sequence for that day. Exam
 The same version is shown in the app window title.
 
 ## 버전 히스토리 / Version History
+
+### 2026.05.06.4
+
+- 앱 기본 언어를 한국어로 변경하고, 우측 상단에서 **한국어 / English**를 전환할 수 있도록 했습니다. UI, 팝업, 로그, CSV 메시지가 선택 언어를 따릅니다.
+- Changed the default app language to Korean and added a **한국어 / English** switch in the top-right. UI, dialogs, logs, and CSV messages follow the selected language.
+
+### 2026.05.06.3
+
+- HWP `FileHeader`의 배포용 문서 플래그를 읽어 PDF 변환이 제한될 가능성이 있는 파일은 한컴을 열기 전에 실패 처리하고 사유를 로그에 남깁니다.
+- Reads the HWP `FileHeader` distribution-document flag and fails PDF conversion before opening Hancom when PDF export is likely restricted, with the reason written to the log.
+
+### 2026.05.06.2
+
+- PDF 저장이 실패하고 출력 파일이 생성되지 않는 경우, 한컴 문서 보안 또는 배포용 문서의 인쇄/PDF 제한 가능성을 실패 사유에 표시합니다.
+- When PDF export fails without creating an output file, the failure reason now mentions possible Hancom document security or distribution-document print/PDF restrictions.
+
+### 2026.05.06.1
+
+- **Pick file...**을 단일 파일 변환 모드로 변경했습니다. 파일 선택 시 **Include subfolders**를 비활성화하고 선택한 파일 하나만 변환/로그 기록합니다.
+- Changed **Pick file...** to single-file conversion mode. When a file is selected, **Include subfolders** is disabled and only that file is converted and logged.
 
 ### 2026.04.30.3
 

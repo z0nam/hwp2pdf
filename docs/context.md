@@ -34,6 +34,7 @@ The older `src/hwp_pdf_converter_app_safe.py` path remains as a compatibility en
 - Select a root folder from the GUI
 - Convert `.hwp` and `.hwpx`
 - Select PDF output, DOCX output, or both
+- Korean UI/logs by default with an English switch
 - Include or exclude subfolders
 - Overwrite or skip existing output files
 - Safe temp conversion through `C:\temp\hwp_convert_safe`
@@ -158,9 +159,16 @@ Hwp.exe -regserver
 Likely causes:
 
 - Hancom PDF engine issue
-- DRM-protected document
+- DRM-protected document or distribution document with print/PDF export disabled
 - Unsupported document structure
 - DOCX export failure
+
+If Hancom disables PDF export for the opened document, the app cannot bypass that restriction.
+The failure log should report that PDF export is unavailable or blocked and suggest checking
+Hancom document security or distribution-document settings.
+For HWP files, the app reads the `FileHeader` flags before opening Hancom. If the distribution
+document flag is set and the requested output is PDF, the app fails that file immediately and logs
+the security restriction reason instead of opening a document that can hang on export.
 
 ### File Access Or Security Prompt
 
