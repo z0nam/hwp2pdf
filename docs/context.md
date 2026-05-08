@@ -35,8 +35,16 @@ The older `src/hwp_pdf_converter_app_safe.py` path remains as a compatibility en
 - Convert `.hwp` and `.hwpx`
 - Select PDF output, DOCX output, or both
 - Korean UI/logs by default with an English switch
+- Update check through GitHub Releases
 - Include or exclude subfolders
 - Overwrite or skip existing output files
+- Force one-page view before export using Hancom `ViewZoom` with explicit
+  `ZoomCustomDlg=1`, `ZoomCntX=1`, `ZoomCntY=1`, and `ZoomType=1`
+- Before PDF export, reset saved N-up printing by executing `PrintToPDFEx` with
+  `HPrint.PrintMethod=0`
+- When the force option is enabled for PDF, write the output directly through
+  `PrintToPDFEx` with the target filename instead of `SaveAs(PDF)` so saved N-up
+  print settings do not leak into the exported PDF
 - Safe temp conversion through `C:\temp\hwp_convert_safe`
 - Progress UI
 - Estimated HWP/HWPX file count below the selected target path
@@ -136,9 +144,15 @@ Expected outputs:
 
 - `dist/hwp2pdf-YYYY.MM.DD.N.exe`
 - `release/hwp2pdf-windows-YYYY.MM.DD.N.zip`
+- `release/hwp2pdf-setup-YYYY.MM.DD.N.exe` when Inno Setup 6 is installed and
+  `scripts/build_installer.ps1` is run
 
 Versioned build numbers use the build date and the sequence number for that date, for example
 `hwp2pdf-2026.04.25.1.exe`.
+
+Installer builds use Inno Setup. The installer improves distribution and creates Start Menu/Desktop
+shortcuts, but it does not remove Windows SmartScreen warnings unless the installer/exe is code
+signed.
 
 ## 9. Known Issues
 

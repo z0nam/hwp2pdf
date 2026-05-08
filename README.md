@@ -9,6 +9,7 @@ This is a Windows GUI converter that uses Hancom Office COM automation to conver
 - HWP/HWPX 파일을 PDF 또는 DOCX로 단일 파일 또는 폴더 일괄 변환
 - 출력 형식 PDF/DOCX 중 하나 또는 둘 다 선택
 - 기본 한국어 UI/로그와 영어 전환
+- GitHub Releases 기반 업데이트 확인
 - 하위 폴더 포함/제외
 - 기존 PDF 덮어쓰기 또는 건너뛰기
 - 저장 전 한쪽 보기 강제 적용 옵션
@@ -19,6 +20,7 @@ This is a Windows GUI converter that uses Hancom Office COM automation to conver
 - Convert one HWP/HWPX file or batch convert a folder to PDF or DOCX
 - Select PDF output, DOCX output, or both
 - Korean UI/logs by default with an English switch
+- Update check through GitHub Releases
 - Include or exclude subfolders
 - Overwrite or skip existing output files
 - Option to force one-page view before export
@@ -65,25 +67,41 @@ version, Hancom Office version, app version shown in the window title, and the c
 
 ## 일반 사용자 실행 / Use The Windows App
 
-일반 사용자는 Python을 설치하지 말고 미리 빌드된 Windows zip 파일을 사용하세요.
+일반 사용자는 Python을 설치하지 말고 미리 빌드된 Windows 설치 파일 또는 zip 파일을 사용하세요.
 
-For normal users, use the prebuilt Windows zip instead of installing Python.
+For normal users, use the prebuilt Windows installer or zip instead of installing Python.
 
-1. 릴리스 페이지 또는 배포자로부터 `hwp2pdf-windows-YYYY.MM.DD.N.zip`을 다운로드합니다.
+권장 방식:
+
+1. 릴리스 페이지 또는 배포자로부터 `hwp2pdf-setup-YYYY.MM.DD.N.exe`를 다운로드합니다.
+2. 설치 파일을 실행하고 안내에 따라 설치합니다.
+3. Windows SmartScreen이 표시되면, 출처를 신뢰할 수 있을 때만 **추가 정보 / More info** -> **실행 / Run anyway**을 선택합니다.
+4. 한컴오피스에서 자동화 또는 파일 접근 허용 여부를 물으면 **항상 허용** 또는 영구 허용 옵션을 선택합니다.
+
+Recommended:
+
+1. Download `hwp2pdf-setup-YYYY.MM.DD.N.exe` from the release page or from whoever distributes the app.
+2. Run the installer and follow the setup wizard.
+3. If Windows SmartScreen appears, choose **More info** and then **Run anyway** only if you trust the source.
+4. If Hancom Office asks whether to allow automation or file access, choose the permanent allow option.
+
+대체 방식:
+
+1. `hwp2pdf-windows-YYYY.MM.DD.N.zip`을 다운로드합니다.
 2. zip 파일을 우클릭하고 **압축 풀기** 또는 **Extract All...**을 선택합니다.
 3. 압축을 푼 `hwp2pdf.exe`를 실행합니다.
-4. Windows SmartScreen이 표시되면, 출처를 신뢰할 수 있을 때만 **추가 정보 / More info** -> **실행 / Run anyway**을 선택합니다.
-5. 한컴오피스에서 자동화 또는 파일 접근 허용 여부를 물으면 **항상 허용** 또는 영구 허용 옵션을 선택합니다.
 
-1. Download `hwp2pdf-windows-YYYY.MM.DD.N.zip` from the release page or from whoever distributes the app.
+Alternative:
+
+1. Download `hwp2pdf-windows-YYYY.MM.DD.N.zip`.
 2. Right-click the zip file and choose **Extract All...**.
 3. Run the extracted `hwp2pdf.exe`.
-4. If Windows SmartScreen appears, choose **More info** and then **Run anyway** only if you trust the source.
-5. If Hancom Office asks whether to allow automation or file access, choose the permanent allow option.
 
-별도 설치 프로그램이나 `_internal` 폴더는 필요 없습니다. 압축을 푼 `hwp2pdf.exe` 하나만 실행하면 됩니다.
+### 보안 경고 / Security Warning
 
-The app does not need a separate installer or an `_internal` folder. Run the extracted `hwp2pdf.exe`.
+현재 배포 파일은 코드 서명 인증서로 서명되지 않았습니다. 따라서 Windows SmartScreen 또는 브라우저 보안 경고가 표시될 수 있습니다. 이 경고는 설치 파일을 사용하더라도 코드 서명 전에는 완전히 사라지지 않습니다. 출처를 신뢰할 수 있을 때만 실행하세요.
+
+The current release files are not signed with a code signing certificate. Windows SmartScreen or browser warnings may appear. Using an installer improves the installation experience, but it does not fully remove these warnings without code signing. Run the app only when you trust the source.
 
 ## 변환 방법 / How To Convert
 
@@ -149,6 +167,20 @@ Build outputs:
 - `dist/hwp2pdf-YYYY.MM.DD.N.exe`
 - `release/hwp2pdf-windows-YYYY.MM.DD.N.zip`
 
+설치 파일을 만들려면 Inno Setup 6을 설치한 뒤 아래 명령을 실행합니다:
+
+To build the installer, install Inno Setup 6 and run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1
+```
+
+설치 파일 결과:
+
+Installer output:
+
+- `release/hwp2pdf-setup-YYYY.MM.DD.N.exe`
+
 버전 번호는 빌드 날짜와 당일 빌드 순번을 사용합니다. 예: `hwp2pdf-2026.04.25.1.exe`, `hwp2pdf-windows-2026.04.25.1.zip`.
 앱 창 제목에도 같은 버전이 표시됩니다.
 
@@ -156,6 +188,28 @@ The version number uses the build date and the build sequence for that day. Exam
 The same version is shown in the app window title.
 
 ## 버전 히스토리 / Version History
+
+### 2026.05.09.2
+
+- Inno Setup 기반 설치 파일 스크립트와 빌드 스크립트를 추가했습니다.
+- Windows SmartScreen 등 보안 경고가 코드 서명 전에는 표시될 수 있음을 README에 명시했습니다.
+- 앱에서 GitHub Releases 최신 버전을 확인하고 다운로드 페이지를 열 수 있는 **업데이트 확인** 버튼을 추가했습니다. 아직 릴리스가 없으면 별도 안내를 표시합니다.
+- Added Inno Setup installer script and installer build script.
+- Documented that Windows SmartScreen and similar warnings may appear before code signing.
+- Added a **Check updates** button that checks the latest GitHub Release and opens the download page. If no release exists yet, the app shows a clear notice.
+
+### 2026.05.07.2
+
+- 한쪽 보기 강제 적용 옵션을 보강했습니다. `ViewZoom` 실행 시 `ZoomCustomDlg=1`, `ZoomCntX=1`, `ZoomCntY=1`, `ZoomType=1`을 함께 지정해 2쪽 보기 상태를 더 확실히 1쪽 보기로 되돌립니다.
+- Strengthened the force one-page view option by setting `ZoomCustomDlg=1`, `ZoomCntX=1`, `ZoomCntY=1`, and `ZoomType=1` together when executing `ViewZoom`.
+- PDF 저장 전 `PrintToPDFEx`의 `PrintMethod=0`을 적용해 문서에 저장된 모아찍기/2쪽씩 인쇄 옵션을 자동 인쇄로 초기화합니다.
+- Before PDF export, applies `PrintMethod=0` through `PrintToPDFEx` to reset saved N-up / two-pages-per-sheet print settings to automatic print.
+- 한쪽 보기 강제 적용이 실제 파일 저장 전에 실행되면 로그에 표시합니다.
+- Logs when the one-page view / N-up reset is actually applied before exporting a file.
+- 한쪽 보기 강제 적용이 켜진 PDF 변환은 `SaveAs(PDF)` 대신 `PrintToPDFEx`에 저장 경로를 지정해 직접 PDF를 생성합니다.
+- When force one-page view is enabled for PDF, the app now creates the PDF directly through `PrintToPDFEx` with the target filename instead of `SaveAs(PDF)`.
+- 모아찍기 인쇄 방식이 감지된 파일에만 기존 인쇄 방식과 자동 인쇄 강제 적용 내용을 로그에 표시합니다.
+- Logs the original print method and automatic-print reset only when an N-up print method is detected.
 
 ### 2026.05.07.1
 

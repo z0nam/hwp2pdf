@@ -1,10 +1,14 @@
 import csv
+import json
 import os
 import queue
 import shutil
 import struct
 import subprocess
 import threading
+import urllib.error
+import urllib.request
+import webbrowser
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -13,6 +17,8 @@ from hwp2pdf.version import __version__
 
 APP_NAME = "HWP/HWPX -> PDF/DOCX Converter"
 APP_TITLE = f"{APP_NAME} v{__version__}"
+GITHUB_RELEASES_API_URL = "https://api.github.com/repos/z0nam/hwp2pdf/releases/latest"
+GITHUB_RELEASES_PAGE_URL = "https://github.com/z0nam/hwp2pdf/releases/latest"
 DEFAULT_OPEN_OPTION = "forceopen:true;versionwarning:false;"
 TEMP_WORKDIR = Path(r"C:\temp\hwp_convert_safe")
 BASE_EXTENSIONS = (".hwp", ".hwpx")
@@ -54,13 +60,14 @@ TEXT = {
         "start": "변환 시작",
         "stop": "중지",
         "open_selected": "선택 위치 열기",
+        "check_updates": "업데이트 확인",
         "ready": "준비",
         "log": "로그",
         "notes_title": "참고",
         "notes": (
             "- 안정성을 위해 시작 전에 아래한글을 닫아 주세요.\n"
             "- 안전한 임시 폴더 모드는 각 파일을 짧은 로컬 경로로 복사한 뒤 변환합니다.\n"
-            "- PDF가 2쪽 보기로 저장되는 문제를 피하려고 기본적으로 한쪽 보기를 강제 적용합니다.\n"
+            "- PDF가 2쪽 보기/모아찍기로 저장되는 문제를 피하려고 기본적으로 한쪽 보기를 강제 적용합니다.\n"
             "- DOCX 출력 품질은 한컴오피스의 DOCX 내보내기 지원에 따라 달라집니다.\n"
             "- 실패, 건너뜀, 중단이 있으면 선택 위치에 CSV 로그가 남습니다."
         ),
@@ -73,6 +80,14 @@ TEXT = {
         "invalid_open_target": "올바른 폴더 또는 파일을 먼저 선택하세요.",
         "already_running": "이미 변환 작업이 실행 중입니다.",
         "select_output": "출력 형식을 하나 이상 선택하세요: PDF 또는 DOCX.",
+        "checking_updates": "업데이트 확인 중...",
+        "update_available_title": "업데이트 사용 가능",
+        "update_available_message": "새 버전 {latest}이 있습니다.\n현재 버전: {current}\n\n다운로드 페이지를 열까요?",
+        "no_update_title": "최신 버전",
+        "no_update_message": "현재 최신 버전을 사용 중입니다.\n현재 버전: {current}",
+        "no_release_title": "릴리스 없음",
+        "no_release_message": "GitHub Releases에 게시된 버전이 아직 없습니다.\n릴리스를 만든 뒤 업데이트 확인을 사용할 수 있습니다.",
+        "update_check_failed": "업데이트 확인에 실패했습니다:\n{message}",
         "pywin32_missing": "pywin32를 사용할 수 없습니다.\n\n설치 명령:\npython -m pip install pywin32\n\n상세:\n{detail}",
         "hwp_running_prompt": (
             "아래한글 프로세스가 이미 백그라운드에서 실행 중입니다.\n\n"
@@ -93,7 +108,8 @@ TEXT = {
         "found_files": "대상 파일 {count}개 발견: {extensions}",
         "csv_log": "CSV 로그: {path}",
         "safe_temp_mode": "안전 임시 폴더 모드: {state}",
-        "force_one_page_mode": "한쪽 보기 강제 적용: {state}",
+        "force_one_page_mode": "한쪽 보기/모아찍기 해제 강제 적용: {state}",
+        "nup_print_reset": "기존 인쇄 방식이 '{method}'로 설정되어 있어 PDF 저장 전 '자동 인쇄(1페이지)'로 강제 적용했습니다.",
         "output_formats": "출력 형식: {formats}",
         "auto_confirm_docx": "DOCX 호환 문서 확인창 자동 확인: 켜짐",
         "security_module": "HWP 파일 접근 보안 모듈: {state}",
@@ -144,6 +160,8 @@ TEXT = {
         ),
         "save_failed": "SaveAs {format} 실패. 시도: {errors}",
         "view_failed": "한쪽 보기 설정에 실패했습니다.",
+        "pdf_print_method_failed": "PDF 인쇄 방식 초기화에 실패했습니다.",
+        "pdf_print_save_failed": "한컴 PDF 인쇄 방식으로 PDF 저장에 실패했습니다.",
     },
     "en": {
         "target_label": "Root folder or file",
@@ -160,13 +178,14 @@ TEXT = {
         "start": "Start conversion",
         "stop": "Stop",
         "open_selected": "Open selected folder",
+        "check_updates": "Check updates",
         "ready": "Ready",
         "log": "Log",
         "notes_title": "Notes",
         "notes": (
             "- Close Hancom HWP before starting for best stability.\n"
             "- Safe temp mode copies each file to a short local path before conversion.\n"
-            "- One-page view is forced before export by default to avoid two-page PDF output.\n"
+            "- One-page view and PDF print method reset are forced before export by default to avoid two-page PDF output.\n"
             "- DOCX output uses Hancom Office export, so layout fidelity depends on Hancom's DOCX support.\n"
             "- A CSV log is kept in the selected location when there are failures, skips, or stops."
         ),
@@ -179,6 +198,14 @@ TEXT = {
         "invalid_open_target": "Select a valid folder or file first.",
         "already_running": "A conversion job is already running.",
         "select_output": "Select at least one output format: PDF or DOCX.",
+        "checking_updates": "Checking for updates...",
+        "update_available_title": "Update available",
+        "update_available_message": "A new version {latest} is available.\nCurrent version: {current}\n\nOpen the download page?",
+        "no_update_title": "Up to date",
+        "no_update_message": "You are using the latest version.\nCurrent version: {current}",
+        "no_release_title": "No release found",
+        "no_release_message": "No version has been published in GitHub Releases yet.\nCreate a release before using update checks.",
+        "update_check_failed": "Update check failed:\n{message}",
         "pywin32_missing": "pywin32 is not available.\n\nInstall it with:\npython -m pip install pywin32\n\nDetails:\n{detail}",
         "hwp_running_prompt": (
             "Hancom HWP process is already running in the background.\n\n"
@@ -199,7 +226,8 @@ TEXT = {
         "found_files": "Found {count} file(s): {extensions}",
         "csv_log": "CSV log: {path}",
         "safe_temp_mode": "Safe temp mode: {state}",
-        "force_one_page_mode": "Force one-page view: {state}",
+        "force_one_page_mode": "Force one-page view / reset N-up printing: {state}",
+        "nup_print_reset": "Existing print method was '{method}', so it was forced to 'Automatic print (one page)' before PDF export.",
         "output_formats": "Output formats: {formats}",
         "auto_confirm_docx": "Auto-confirm DOCX compatibility dialogs: ON",
         "security_module": "HWP file access security module: {state}",
@@ -250,6 +278,8 @@ TEXT = {
         ),
         "save_failed": "SaveAs {format} failed. Tried: {errors}",
         "view_failed": "ViewZoom one-page setting failed",
+        "pdf_print_method_failed": "PDF print method reset failed",
+        "pdf_print_save_failed": "PDF export through Hancom PDF printing failed",
     },
 }
 
@@ -257,6 +287,37 @@ TEXT = {
 def translate(lang: str, key: str, **kwargs):
     text = TEXT.get(lang, TEXT["ko"]).get(key, TEXT["ko"].get(key, key))
     return text.format(**kwargs) if kwargs else text
+
+
+def parse_version(value: str):
+    parts = []
+    for part in value.strip().lstrip("vV").split("."):
+        try:
+            parts.append(int(part))
+        except ValueError:
+            break
+    return tuple(parts)
+
+
+def latest_release_version(release: dict):
+    for key in ("tag_name", "name"):
+        value = str(release.get(key) or "").strip()
+        parsed = parse_version(value)
+        if parsed:
+            return value.lstrip("vV")
+    return ""
+
+
+def fetch_latest_release():
+    request = urllib.request.Request(
+        GITHUB_RELEASES_API_URL,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": f"hwp2pdf/{__version__}",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
 
 
 def ensure_pywin32():
@@ -356,6 +417,60 @@ def build_save_failure_message(output_format: str, errors, lang: str = "ko"):
     return detail
 
 
+def set_hwp_parameter(pset, name: str, value):
+    try:
+        setattr(pset, name, value)
+    except Exception:
+        pass
+
+    for target in (pset, getattr(pset, "HSet", None)):
+        if target is None:
+            continue
+        try:
+            target.SetItem(name, value)
+        except Exception:
+            pass
+
+
+PRINT_METHOD_LABELS = {
+    "ko": {
+        0: "자동 인쇄",
+        1: "공급 용지에 맞추어",
+        2: "나눠 찍기",
+        3: "자동으로 모아 찍기",
+        4: "2쪽씩 모아 찍기",
+        5: "3쪽씩 모아 찍기",
+        6: "4쪽씩 모아 찍기",
+        7: "6쪽씩 모아 찍기",
+        8: "8쪽씩 모아 찍기",
+        9: "9쪽씩 모아 찍기",
+        10: "16쪽씩 모아 찍기",
+    },
+    "en": {
+        0: "Automatic print",
+        1: "Fit to paper",
+        2: "Tile pages",
+        3: "Automatic N-up printing",
+        4: "2 pages per sheet",
+        5: "3 pages per sheet",
+        6: "4 pages per sheet",
+        7: "6 pages per sheet",
+        8: "8 pages per sheet",
+        9: "9 pages per sheet",
+        10: "16 pages per sheet",
+    },
+}
+
+
+def print_method_label(print_method, lang: str):
+    labels = PRINT_METHOD_LABELS.get(lang, PRINT_METHOD_LABELS["ko"])
+    return labels.get(print_method, f"PrintMethod={print_method}")
+
+
+def is_nup_print_method(print_method):
+    return print_method in {3, 4, 5, 6, 7, 8, 9, 10}
+
+
 def save_document_as(hwp, save_target: Path, output_format: str, lang: str = "ko"):
     errors = []
     for save_format in SAVE_FORMAT_ALIASES[output_format]:
@@ -409,13 +524,101 @@ def save_document_as(hwp, save_target: Path, output_format: str, lang: str = "ko
 
 def force_one_page_view(hwp, lang: str = "ko"):
     ps = hwp.HParameterSet.HViewProperties
-    hwp.HAction.GetDefault("ViewZoom", ps.HSet)
-    ps.ZoomCntX = 1
-    ps.ZoomCntY = 1
-    ps.PageDir = 0
+    try:
+        hwp.HAction.GetDefault("ViewZoom", ps.HSet)
+    except Exception:
+        pass
+
+    # ZoomCustomDlg + ZoomCntX/ZoomCntY is the Hancom action pattern for explicit multi-page view.
+    # 1 x 1 forces the document back to a single-page view before PDF export.
+    set_hwp_parameter(ps, "ZoomCustomDlg", 1)
+    set_hwp_parameter(ps, "ZoomCntX", 1)
+    set_hwp_parameter(ps, "ZoomCntY", 1)
+    set_hwp_parameter(ps, "ZoomType", 1)
+    set_hwp_parameter(ps, "PageDir", 0)
     executed = hwp.HAction.Execute("ViewZoom", ps.HSet)
     if executed is False:
         raise RuntimeError(translate(lang, "view_failed"))
+
+
+def configure_pdf_print(hwp, save_target: Path | None = None):
+    ps = hwp.HParameterSet.HPrint
+    try:
+        hwp.HAction.GetDefault("PrintToPDFEx", ps.HSet)
+    except Exception:
+        try:
+            hwp.HAction.GetDefault("FilePrint", ps.HSet)
+        except Exception:
+            pass
+
+    original_print_method = None
+    try:
+        original_print_method = int(ps.PrintMethod)
+    except Exception:
+        pass
+
+    if save_target is not None:
+        set_hwp_parameter(ps, "FileName", str(save_target))
+        set_hwp_parameter(ps, "filename", str(save_target))
+
+    values = {
+        "Collate": 1,
+        "UserOrder": 0,
+        "PrintToFile": 0,
+        "NumCopy": 1,
+        "PrinterName": "Hancom PDF",
+        "UsingPagenum": 1,
+        "ReverseOrder": 0,
+        "Pause": 0,
+        "PrintImage": 1,
+        "PrintDrawObj": 1,
+        "PrintClickHere": 0,
+        "PrintAutoFootnoteLtext": "^f",
+        "PrintAutoFootnoteCtext": "^t",
+        "PrintAutoFootnoteRtext": "^P쪽 중 ^p쪽",
+        "PrintAutoHeadnoteLtext": "^c",
+        "PrintAutoHeadnoteCtext": "^n",
+        "PrintAutoHeadnoteRtext": "^p",
+        "PrintFormObj": 1,
+        "PrintMarkPen": 0,
+        "PrintMemo": 0,
+        "PrintMemoContents": 0,
+        "PrintRevision": 1,
+        "PrintBarcode": 1,
+        "PrintPronounce": 0,
+        # 0 = automatic/basic print. This clears saved N-up / multiple-pages print mode before SaveAs PDF.
+        "PrintMethod": 0,
+    }
+    for name, value in values.items():
+        set_hwp_parameter(ps, name, value)
+
+    return ps, original_print_method
+
+
+def reset_pdf_print_method(hwp, lang: str = "ko"):
+    ps, _original_print_method = configure_pdf_print(hwp)
+
+    try:
+        executed = hwp.HAction.Execute("PrintToPDFEx", ps.HSet)
+    except Exception as e:
+        raise RuntimeError(f"{translate(lang, 'pdf_print_method_failed')}: {e}") from e
+
+    if executed is False:
+        raise RuntimeError(translate(lang, "pdf_print_method_failed"))
+
+
+def save_pdf_with_print_to_pdf(hwp, save_target: Path, lang: str = "ko"):
+    ps, original_print_method = configure_pdf_print(hwp, save_target)
+
+    try:
+        executed = hwp.HAction.Execute("PrintToPDFEx", ps.HSet)
+    except Exception as e:
+        raise RuntimeError(f"{translate(lang, 'pdf_print_save_failed')}: {e}") from e
+
+    if executed is False or not save_target.exists():
+        raise RuntimeError(translate(lang, "pdf_print_save_failed"))
+
+    return "PrintToPDFEx", original_print_method
 
 
 def enable_auto_confirm_message_boxes(hwp):
@@ -474,6 +677,7 @@ class ConverterApp:
         self.is_running = False
         self.recursive_check = None
         self.file_count_var = tk.StringVar()
+        self.update_btn = None
         self.ui = {}
 
         self._build_ui()
@@ -564,6 +768,8 @@ class ConverterApp:
 
         self.ui["open_btn"] = ttk.Button(actions, command=self.open_selected_folder)
         self.ui["open_btn"].pack(side="left", padx=(8, 0))
+        self.update_btn = ttk.Button(actions, command=self.check_for_updates)
+        self.update_btn.pack(side="left", padx=(8, 0))
 
         progress_frame = ttk.Frame(self.root, padding=(12, 0, 12, 0))
         progress_frame.pack(fill="x")
@@ -613,6 +819,7 @@ class ConverterApp:
         self.start_btn.configure(text=self.tr("start"))
         self.stop_btn.configure(text=self.tr("stop"))
         self.ui["open_btn"].configure(text=self.tr("open_selected"))
+        self.update_btn.configure(text=self.tr("check_updates"))
         self.ui["log_label"].configure(text=self.tr("log"))
         self.ui["note_frame"].configure(text=self.tr("notes_title"))
         self.ui["notes_label"].configure(text=self.tr("notes"))
@@ -750,10 +957,58 @@ class ConverterApp:
                     self.append_log(self.tr("error_log", message=payload), "error")
                     messagebox.showerror(APP_TITLE, payload)
 
+                elif kind == "update_done":
+                    self.update_btn.config(state="normal")
+                    status, latest, release_url, error_message = payload
+                    if status == "newer":
+                        if messagebox.askyesno(
+                            self.tr("update_available_title"),
+                            self.tr("update_available_message", latest=latest, current=__version__),
+                        ):
+                            webbrowser.open(release_url or GITHUB_RELEASES_PAGE_URL)
+                    elif status == "current":
+                        messagebox.showinfo(
+                            self.tr("no_update_title"),
+                            self.tr("no_update_message", current=__version__),
+                        )
+                    elif status == "no_release":
+                        messagebox.showinfo(
+                            self.tr("no_release_title"),
+                            self.tr("no_release_message"),
+                        )
+                    else:
+                        messagebox.showerror(
+                            APP_TITLE,
+                            self.tr("update_check_failed", message=error_message or "unknown error"),
+                        )
+
         except queue.Empty:
             pass
 
         self.root.after(150, self._poll_log_queue)
+
+    def check_for_updates(self):
+        self.update_btn.config(state="disabled")
+        lang = self.lang()
+        self.append_log(translate(lang, "checking_updates"))
+        threading.Thread(target=self._check_for_updates_worker, args=(lang,), daemon=True).start()
+
+    def _check_for_updates_worker(self, lang: str):
+        try:
+            release = fetch_latest_release()
+            latest = latest_release_version(release)
+            release_url = release.get("html_url") or GITHUB_RELEASES_PAGE_URL
+            if latest and parse_version(latest) > parse_version(__version__):
+                self.log_queue.put(("update_done", ("newer", latest, release_url, "")))
+            else:
+                self.log_queue.put(("update_done", ("current", latest or __version__, release_url, "")))
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                self.log_queue.put(("update_done", ("no_release", "", "", "")))
+            else:
+                self.log_queue.put(("update_done", ("error", "", "", str(e))))
+        except Exception as e:
+            self.log_queue.put(("update_done", ("error", "", "", str(e))))
 
     def start_conversion(self):
         if self.is_running:
@@ -1060,7 +1315,23 @@ class ConverterApp:
                                 if force_one_page:
                                     force_one_page_view(hwp, lang)
 
-                                actual_save_format = save_document_as(hwp, save_target, output_format, lang)
+                                if force_one_page and output_format == "PDF":
+                                    actual_save_format, original_print_method = save_pdf_with_print_to_pdf(
+                                        hwp, save_target, lang
+                                    )
+                                    if is_nup_print_method(original_print_method):
+                                        self.log_queue.put(
+                                            (
+                                                "log",
+                                                translate(
+                                                    lang,
+                                                    "nup_print_reset",
+                                                    method=print_method_label(original_print_method, lang),
+                                                ),
+                                            )
+                                        )
+                                else:
+                                    actual_save_format = save_document_as(hwp, save_target, output_format, lang)
 
                                 try:
                                     hwp.Clear(1)
