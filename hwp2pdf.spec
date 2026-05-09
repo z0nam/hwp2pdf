@@ -9,7 +9,7 @@ PYTHON_ROOT = Path(sys.base_prefix)
 PYTHON_DLLS = PYTHON_ROOT / "DLLs"
 
 
-a = Analysis(
+a_gui = Analysis(
     ["src/hwp2pdf/__main__.py"],
     pathex=[str(ROOT / "src")],
     binaries=[
@@ -30,13 +30,13 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
-pyz = PYZ(a.pure)
+pyz_gui = PYZ(a_gui.pure)
 
-exe = EXE(
-    pyz,
-    a.scripts,
-    a.binaries,
-    a.datas,
+gui_exe = EXE(
+    pyz_gui,
+    a_gui.scripts,
+    a_gui.binaries,
+    a_gui.datas,
     [],
     exclude_binaries=False,
     name="hwp2pdf",
@@ -51,4 +51,39 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(ICON) if ICON.exists() else None,
+)
+
+a_cli = Analysis(
+    ["src/hwp2pdf/cli.py"],
+    pathex=[str(ROOT / "src")],
+    binaries=[],
+    datas=[],
+    hiddenimports=["pythoncom", "pywintypes", "win32com", "win32com.client"],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+    optimize=0,
+)
+pyz_cli = PYZ(a_cli.pure)
+
+cli_exe = EXE(
+    pyz_cli,
+    a_cli.scripts,
+    a_cli.binaries,
+    a_cli.datas,
+    [],
+    exclude_binaries=False,
+    name="hwp2pdf-cli",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=True,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
 )

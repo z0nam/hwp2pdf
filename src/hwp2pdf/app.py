@@ -6,6 +6,7 @@ import shutil
 import struct
 import subprocess
 import threading
+import time
 import urllib.error
 import urllib.request
 import webbrowser
@@ -19,6 +20,8 @@ APP_NAME = "HWP/HWPX -> PDF/DOCX Converter"
 APP_TITLE = f"{APP_NAME} v{__version__}"
 GITHUB_RELEASES_API_URL = "https://api.github.com/repos/z0nam/hwp2pdf/releases/latest"
 GITHUB_RELEASES_PAGE_URL = "https://github.com/z0nam/hwp2pdf/releases/latest"
+UPDATE_CHECK_INTERVAL_SECONDS = 24 * 60 * 60
+UPDATE_STATE_PATH = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "hwp2pdf" / "update_state.json"
 DEFAULT_OPEN_OPTION = "forceopen:true;versionwarning:false;"
 TEMP_WORKDIR = Path(r"C:\temp\hwp_convert_safe")
 BASE_EXTENSIONS = (".hwp", ".hwpx")
@@ -60,7 +63,12 @@ TEXT = {
         "start": "변환 시작",
         "stop": "중지",
         "open_selected": "선택 위치 열기",
-        "check_updates": "업데이트 확인",
+        "upgrade": "업그레이드",
+        "update_status_checking": "업데이트 확인 중...",
+        "update_status_current": "최신 버전입니다. 현재: {current}",
+        "update_status_available": "새 버전이 있습니다. 현재: {current} / 최신: {latest}",
+        "update_status_no_release": "현재 버전: {current}. 아직 공개 릴리스가 없습니다.",
+        "update_status_failed": "현재 버전: {current}. 업데이트 확인 불가",
         "ready": "준비",
         "log": "로그",
         "notes_title": "참고",
@@ -80,14 +88,6 @@ TEXT = {
         "invalid_open_target": "올바른 폴더 또는 파일을 먼저 선택하세요.",
         "already_running": "이미 변환 작업이 실행 중입니다.",
         "select_output": "출력 형식을 하나 이상 선택하세요: PDF 또는 DOCX.",
-        "checking_updates": "업데이트 확인 중...",
-        "update_available_title": "업데이트 사용 가능",
-        "update_available_message": "새 버전 {latest}이 있습니다.\n현재 버전: {current}\n\n다운로드 페이지를 열까요?",
-        "no_update_title": "최신 버전",
-        "no_update_message": "현재 최신 버전을 사용 중입니다.\n현재 버전: {current}",
-        "no_release_title": "릴리스 없음",
-        "no_release_message": "GitHub Releases에 게시된 버전이 아직 없습니다.\n릴리스를 만든 뒤 업데이트 확인을 사용할 수 있습니다.",
-        "update_check_failed": "업데이트 확인에 실패했습니다:\n{message}",
         "pywin32_missing": "pywin32를 사용할 수 없습니다.\n\n설치 명령:\npython -m pip install pywin32\n\n상세:\n{detail}",
         "hwp_running_prompt": (
             "아래한글 프로세스가 이미 백그라운드에서 실행 중입니다.\n\n"
@@ -178,7 +178,12 @@ TEXT = {
         "start": "Start conversion",
         "stop": "Stop",
         "open_selected": "Open selected folder",
-        "check_updates": "Check updates",
+        "upgrade": "Upgrade",
+        "update_status_checking": "Checking for updates...",
+        "update_status_current": "Up to date. Current: {current}",
+        "update_status_available": "New version available. Current: {current} / Latest: {latest}",
+        "update_status_no_release": "Current: {current}. No public release yet.",
+        "update_status_failed": "Current: {current}. Update check unavailable",
         "ready": "Ready",
         "log": "Log",
         "notes_title": "Notes",
@@ -198,14 +203,6 @@ TEXT = {
         "invalid_open_target": "Select a valid folder or file first.",
         "already_running": "A conversion job is already running.",
         "select_output": "Select at least one output format: PDF or DOCX.",
-        "checking_updates": "Checking for updates...",
-        "update_available_title": "Update available",
-        "update_available_message": "A new version {latest} is available.\nCurrent version: {current}\n\nOpen the download page?",
-        "no_update_title": "Up to date",
-        "no_update_message": "You are using the latest version.\nCurrent version: {current}",
-        "no_release_title": "No release found",
-        "no_release_message": "No version has been published in GitHub Releases yet.\nCreate a release before using update checks.",
-        "update_check_failed": "Update check failed:\n{message}",
         "pywin32_missing": "pywin32 is not available.\n\nInstall it with:\npython -m pip install pywin32\n\nDetails:\n{detail}",
         "hwp_running_prompt": (
             "Hancom HWP process is already running in the background.\n\n"
@@ -318,6 +315,32 @@ def fetch_latest_release():
     )
     with urllib.request.urlopen(request, timeout=10) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def load_update_state():
+    try:
+        with UPDATE_STATE_PATH.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_update_state(state: dict):
+    try:
+        UPDATE_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with UPDATE_STATE_PATH.open("w", encoding="utf-8") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
+
+def should_check_updates(state: dict):
+    try:
+        checked_at = float(state.get("checked_at", 0))
+    except (TypeError, ValueError):
+        checked_at = 0
+    return time.time() - checked_at >= UPDATE_CHECK_INTERVAL_SECONDS
 
 
 def ensure_pywin32():
@@ -677,13 +700,18 @@ class ConverterApp:
         self.is_running = False
         self.recursive_check = None
         self.file_count_var = tk.StringVar()
-        self.update_btn = None
+        self.update_status_var = tk.StringVar()
+        self.upgrade_btn = None
+        self.latest_release_url = GITHUB_RELEASES_PAGE_URL
+        self.update_check_running = False
         self.ui = {}
 
         self._build_ui()
         self.folder_var.trace_add("write", self._on_target_path_changed)
         self.recursive_var.trace_add("write", self._on_target_path_changed)
+        self._apply_cached_update_state()
         self._poll_log_queue()
+        self.root.after(1000, self.check_for_updates_if_due)
 
     def lang(self):
         return LANGUAGE_CODES.get(self.language_var.get(), "ko")
@@ -729,6 +757,14 @@ class ConverterApp:
         self.ui["file_count_label"] = ttk.Label(top, textvariable=self.file_count_var)
         self.ui["file_count_label"].grid(row=2, column=0, sticky="w", pady=(4, 0))
 
+        update_row = ttk.Frame(top)
+        update_row.grid(row=3, column=0, sticky="w", pady=(4, 0))
+        self.ui["update_status_label"] = ttk.Label(update_row, textvariable=self.update_status_var)
+        self.ui["update_status_label"].pack(side="left")
+        self.upgrade_btn = ttk.Button(update_row, command=self.open_latest_release)
+        self.upgrade_btn.pack(side="left", padx=(8, 0))
+        self.upgrade_btn.pack_forget()
+
         opts = ttk.LabelFrame(self.root, padding=12)
         self.ui["opts"] = opts
         opts.pack(fill="x", padx=12, pady=(0, 12))
@@ -768,8 +804,6 @@ class ConverterApp:
 
         self.ui["open_btn"] = ttk.Button(actions, command=self.open_selected_folder)
         self.ui["open_btn"].pack(side="left", padx=(8, 0))
-        self.update_btn = ttk.Button(actions, command=self.check_for_updates)
-        self.update_btn.pack(side="left", padx=(8, 0))
 
         progress_frame = ttk.Frame(self.root, padding=(12, 0, 12, 0))
         progress_frame.pack(fill="x")
@@ -819,12 +853,13 @@ class ConverterApp:
         self.start_btn.configure(text=self.tr("start"))
         self.stop_btn.configure(text=self.tr("stop"))
         self.ui["open_btn"].configure(text=self.tr("open_selected"))
-        self.update_btn.configure(text=self.tr("check_updates"))
+        self.upgrade_btn.configure(text=self.tr("upgrade"))
         self.ui["log_label"].configure(text=self.tr("log"))
         self.ui["note_frame"].configure(text=self.tr("notes_title"))
         self.ui["notes_label"].configure(text=self.tr("notes"))
         if not self.is_running:
             self.progress_label_var.set(self.tr("ready"))
+        self._apply_cached_update_state()
         self._update_file_count_estimate()
 
     def browse_folder(self):
@@ -958,42 +993,71 @@ class ConverterApp:
                     messagebox.showerror(APP_TITLE, payload)
 
                 elif kind == "update_done":
-                    self.update_btn.config(state="normal")
                     status, latest, release_url, error_message = payload
-                    if status == "newer":
-                        if messagebox.askyesno(
-                            self.tr("update_available_title"),
-                            self.tr("update_available_message", latest=latest, current=__version__),
-                        ):
-                            webbrowser.open(release_url or GITHUB_RELEASES_PAGE_URL)
-                    elif status == "current":
-                        messagebox.showinfo(
-                            self.tr("no_update_title"),
-                            self.tr("no_update_message", current=__version__),
-                        )
-                    elif status == "no_release":
-                        messagebox.showinfo(
-                            self.tr("no_release_title"),
-                            self.tr("no_release_message"),
-                        )
-                    else:
-                        messagebox.showerror(
-                            APP_TITLE,
-                            self.tr("update_check_failed", message=error_message or "unknown error"),
-                        )
+                    self.update_check_running = False
+                    state = {
+                        "checked_at": time.time(),
+                        "status": status,
+                        "latest": latest,
+                        "release_url": release_url,
+                        "error": error_message,
+                    }
+                    save_update_state(state)
+                    self._apply_update_state(state)
 
         except queue.Empty:
             pass
 
         self.root.after(150, self._poll_log_queue)
 
-    def check_for_updates(self):
-        self.update_btn.config(state="disabled")
-        lang = self.lang()
-        self.append_log(translate(lang, "checking_updates"))
-        threading.Thread(target=self._check_for_updates_worker, args=(lang,), daemon=True).start()
+    def open_latest_release(self):
+        webbrowser.open(self.latest_release_url or GITHUB_RELEASES_PAGE_URL)
 
-    def _check_for_updates_worker(self, lang: str):
+    def _show_upgrade_button(self, visible: bool):
+        if visible:
+            if not self.upgrade_btn.winfo_manager():
+                self.upgrade_btn.pack(side="left", padx=(8, 0))
+        else:
+            self.upgrade_btn.pack_forget()
+
+    def _apply_cached_update_state(self):
+        state = load_update_state()
+        if state:
+            self._apply_update_state(state)
+        else:
+            self.update_status_var.set(self.tr("update_status_current", current=__version__))
+            self._show_upgrade_button(False)
+
+    def _apply_update_state(self, state: dict):
+        status = state.get("status")
+        latest = state.get("latest") or ""
+        release_url = state.get("release_url") or GITHUB_RELEASES_PAGE_URL
+        self.latest_release_url = release_url
+
+        if status == "newer" and latest and parse_version(latest) > parse_version(__version__):
+            self.update_status_var.set(self.tr("update_status_available", current=__version__, latest=latest))
+            self._show_upgrade_button(True)
+        elif status == "no_release":
+            self.update_status_var.set(self.tr("update_status_no_release", current=__version__))
+            self._show_upgrade_button(False)
+        elif status == "error":
+            self.update_status_var.set(self.tr("update_status_failed", current=__version__))
+            self._show_upgrade_button(False)
+        else:
+            self.update_status_var.set(self.tr("update_status_current", current=__version__))
+            self._show_upgrade_button(False)
+
+    def check_for_updates_if_due(self):
+        state = load_update_state()
+        if self.update_check_running or not should_check_updates(state):
+            return
+
+        self.update_check_running = True
+        self.update_status_var.set(self.tr("update_status_checking"))
+        self._show_upgrade_button(False)
+        threading.Thread(target=self._check_for_updates_worker, daemon=True).start()
+
+    def _check_for_updates_worker(self):
         try:
             release = fetch_latest_release()
             latest = latest_release_version(release)

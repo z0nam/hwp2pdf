@@ -31,9 +31,11 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "{#AppRoot}\dist\hwp2pdf-{#AppVersion}.exe"; DestDir: "{app}"; DestName: "hwp2pdf.exe"; Flags: ignoreversion
+Source: "{#AppRoot}\dist\hwp2pdf-cli-{#AppVersion}.exe"; DestDir: "{app}"; DestName: "hwp2pdf-cli.exe"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\hwp2pdf"; Filename: "{app}\hwp2pdf.exe"
+Name: "{group}\hwp2pdf CLI"; Filename: "{app}\hwp2pdf-cli.exe"
 Name: "{group}\Uninstall hwp2pdf"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\hwp2pdf"; Filename: "{app}\hwp2pdf.exe"; Tasks: desktopicon
 

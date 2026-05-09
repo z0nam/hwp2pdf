@@ -1,15 +1,16 @@
 ﻿# hwp2pdf
 
-Windows + Hancom Office COM 자동화를 사용하는 HWP/HWPX -> PDF/DOCX GUI 변환기입니다.
+Windows + Hancom Office COM 자동화를 사용하는 HWP/HWPX -> PDF/DOCX GUI/CLI 변환기입니다.
 
-This is a Windows GUI converter that uses Hancom Office COM automation to convert HWP/HWPX files to PDF or DOCX.
+This is a Windows GUI/CLI converter that uses Hancom Office COM automation to convert HWP/HWPX files to PDF or DOCX.
 
 ## 주요 기능 / Features
 
 - HWP/HWPX 파일을 PDF 또는 DOCX로 단일 파일 또는 폴더 일괄 변환
+- GUI와 명령줄 CLI 지원
 - 출력 형식 PDF/DOCX 중 하나 또는 둘 다 선택
 - 기본 한국어 UI/로그와 영어 전환
-- GitHub Releases 기반 업데이트 확인
+- GitHub Releases 기반 하루 1회 자동 업데이트 확인과 새 버전 업그레이드 버튼
 - 하위 폴더 포함/제외
 - 기존 PDF 덮어쓰기 또는 건너뛰기
 - 저장 전 한쪽 보기 강제 적용 옵션
@@ -18,9 +19,10 @@ This is a Windows GUI converter that uses Hancom Office COM automation to conver
 - 변환 결과 CSV 로그 생성
 
 - Convert one HWP/HWPX file or batch convert a folder to PDF or DOCX
+- GUI and command-line CLI support
 - Select PDF output, DOCX output, or both
 - Korean UI/logs by default with an English switch
-- Update check through GitHub Releases
+- Automatic daily update check through GitHub Releases with an upgrade button when a newer version exists
 - Include or exclude subfolders
 - Overwrite or skip existing output files
 - Option to force one-page view before export
@@ -121,12 +123,48 @@ PDF 또는 DOCX 파일은 원본 문서 옆에 생성됩니다. 선택한 루트
 
 PDF or DOCX files are written beside the original documents. A conversion log named `hwp2pdf_log.csv` is written to the selected root folder.
 
+## CLI 사용 / CLI Usage
+
+소스에서 설치한 경우 `hwp2pdf` 명령으로 같은 변환 기능을 실행할 수 있습니다. 출력 형식을 지정하지 않으면 PDF만 생성합니다.
+
+After installing from source, the same conversion engine is available through the `hwp2pdf` command. If no output format is selected, it exports PDF only.
+
+```powershell
+hwp2pdf "C:\docs\sample.hwp"
+hwp2pdf "C:\docs\sample.hwpx" --pdf --docx
+hwp2pdf "C:\docs\folder" --pdf --recursive
+hwp2pdf "C:\docs\folder" --docx --no-overwrite
+```
+
+Windows 배포 zip 또는 설치 파일에는 콘솔용 `hwp2pdf-cli.exe`도 포함됩니다.
+
+The Windows zip and installer also include the console-friendly `hwp2pdf-cli.exe`.
+
+```powershell
+hwp2pdf-cli.exe "C:\docs\sample.hwp" --pdf
+hwp2pdf-cli.exe "C:\docs\folder" --pdf --docx --recursive
+```
+
+주요 옵션:
+
+Main options:
+
+- `--pdf`: PDF 생성
+- `--docx`: DOCX 생성
+- `-r`, `--recursive`: 폴더 변환 시 하위 폴더 포함
+- `--no-overwrite`: 기존 출력 파일이 있으면 건너뛰기
+- `--no-safe-temp`: 안전 임시 폴더 복사 모드 끄기
+- `--no-force-one-page`: PDF 저장 전 한쪽 보기/모아찍기 해제 강제 적용 끄기
+- `--kill-hwp`: 실행 중인 아래한글 프로세스를 강제 종료하고 진행
+- `--allow-running-hwp`: 아래한글이 이미 실행 중이어도 그대로 진행
+
 ## 소스에서 실행 / Run From Source
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -e .
 .\.venv\Scripts\python -m hwp2pdf
+.\.venv\Scripts\hwp2pdf --help
 ```
 
 패키지를 설치하지 않고 로컬 개발용으로 실행하려면:
@@ -165,6 +203,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_windows.ps1
 Build outputs:
 
 - `dist/hwp2pdf-YYYY.MM.DD.N.exe`
+- `dist/hwp2pdf-cli-YYYY.MM.DD.N.exe`
 - `release/hwp2pdf-windows-YYYY.MM.DD.N.zip`
 
 설치 파일을 만들려면 Inno Setup 6을 설치한 뒤 아래 명령을 실행합니다:
@@ -188,6 +227,20 @@ The version number uses the build date and the build sequence for that day. Exam
 The same version is shown in the app window title.
 
 ## 버전 히스토리 / Version History
+
+### 2026.05.09.4
+
+- `hwp2pdf` 명령줄 CLI와 배포용 `hwp2pdf-cli.exe`를 추가했습니다. 파일/폴더 대상, PDF/DOCX 선택, 하위 폴더 포함, 덮어쓰기 제어, 안전 임시 폴더 모드, 한쪽 보기 강제 적용 옵션을 지원합니다.
+- `python -m hwp2pdf`는 인자가 없으면 GUI를 실행하고, 인자가 있으면 CLI로 동작합니다.
+- Added the `hwp2pdf` command-line CLI and distributable `hwp2pdf-cli.exe` with file/folder targets, PDF/DOCX selection, recursive folder conversion, overwrite control, safe temp mode, and force one-page options.
+- `python -m hwp2pdf` opens the GUI with no arguments and runs the CLI when arguments are provided.
+
+### 2026.05.09.3
+
+- 수동 **업데이트 확인** 버튼을 제거하고, 앱 시작 시 하루 1회만 GitHub Releases를 조용히 확인하도록 변경했습니다.
+- 새 버전이 있으면 현재 버전과 최신 버전을 함께 표시하고 **업그레이드** 버튼을 보여줍니다. 최신 버전이면 상태 문구로만 안내합니다.
+- Removed the manual **Check updates** button and changed update checks to run quietly once per day on app startup.
+- When a newer version exists, the app shows the current/latest versions and an **Upgrade** button. If the app is current, it shows a mild status message only.
 
 ### 2026.05.09.2
 

@@ -31,11 +31,12 @@ The older `src/hwp_pdf_converter_app_safe.py` path remains as a compatibility en
 
 ## 3. Current Feature Set
 
-- Select a root folder from the GUI
+- Select a root folder from the GUI or use the `hwp2pdf` CLI command
 - Convert `.hwp` and `.hwpx`
 - Select PDF output, DOCX output, or both
 - Korean UI/logs by default with an English switch
-- Update check through GitHub Releases
+- Automatic daily update check through GitHub Releases, with a mild status label and an
+  upgrade button only when a newer release exists
 - Include or exclude subfolders
 - Overwrite or skip existing output files
 - Force one-page view before export using Hancom `ViewZoom` with explicit
@@ -48,6 +49,13 @@ The older `src/hwp_pdf_converter_app_safe.py` path remains as a compatibility en
 - Safe temp conversion through `C:\temp\hwp_convert_safe`
 - Progress UI
 - Estimated HWP/HWPX file count below the selected target path
+
+CLI usage is exposed through the `hwp2pdf` console script and the packaged
+`hwp2pdf-cli-YYYY.MM.DD.N.exe` / installed `hwp2pdf-cli.exe`. `python -m hwp2pdf`
+starts the GUI when no arguments are provided and runs the CLI when arguments are present.
+The CLI reuses the GUI conversion worker and supports `--pdf`, `--docx`, `--recursive`,
+`--no-overwrite`, `--no-safe-temp`, `--no-force-one-page`, `--kill-hwp`, and
+`--allow-running-hwp`.
 - Colored on-screen logs for failures and warning states
 - Stop request between files
 - CSV conversion log: `hwp2pdf_log.csv`
@@ -143,6 +151,7 @@ Then build:
 Expected outputs:
 
 - `dist/hwp2pdf-YYYY.MM.DD.N.exe`
+- `dist/hwp2pdf-cli-YYYY.MM.DD.N.exe`
 - `release/hwp2pdf-windows-YYYY.MM.DD.N.zip`
 - `release/hwp2pdf-setup-YYYY.MM.DD.N.exe` when Inno Setup 6 is installed and
   `scripts/build_installer.ps1` is run

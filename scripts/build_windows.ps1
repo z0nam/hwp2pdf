@@ -17,7 +17,7 @@ function Invoke-Native {
 
 function Compress-WithRetry {
     param(
-        [string]$Path,
+        [string[]]$Path,
         [string]$DestinationPath,
         [int]$Retries = 5
     )
@@ -88,12 +88,20 @@ if (-not (Test-Path $DistExe)) {
     throw "Expected build output not found: $DistExe"
 }
 
+$DistCliExe = Join-Path $Root "dist\hwp2pdf-cli.exe"
+if (-not (Test-Path $DistCliExe)) {
+    throw "Expected CLI build output not found: $DistCliExe"
+}
+
 $VersionedExe = Join-Path $Root "dist\hwp2pdf-$Version.exe"
+$VersionedCliExe = Join-Path $Root "dist\hwp2pdf-cli-$Version.exe"
 $ZipPath = Join-Path $ReleaseDir "hwp2pdf-windows-$Version.zip"
 
 Move-Item -LiteralPath $DistExe -Destination $VersionedExe -Force
-Compress-WithRetry -Path $VersionedExe -DestinationPath $ZipPath
+Move-Item -LiteralPath $DistCliExe -Destination $VersionedCliExe -Force
+Compress-WithRetry -Path @($VersionedExe, $VersionedCliExe) -DestinationPath $ZipPath
 
 Write-Host "Version $Version"
 Write-Host "Built $VersionedExe"
+Write-Host "Built $VersionedCliExe"
 Write-Host "Built $ZipPath"

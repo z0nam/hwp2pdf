@@ -27,11 +27,17 @@ if (-not (Test-Path $VersionedExe)) {
     throw "Versioned exe not found. Run scripts\build_windows.ps1 first: $VersionedExe"
 }
 
+$VersionedCliExe = Join-Path $Root "dist\hwp2pdf-cli-$Version.exe"
+if (-not (Test-Path $VersionedCliExe)) {
+    throw "Versioned CLI exe not found. Run scripts\build_windows.ps1 first: $VersionedCliExe"
+}
+
 $Iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
 if (-not $Iscc) {
     $Candidates = @(
         "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
-        "C:\Program Files\Inno Setup 6\ISCC.exe"
+        "C:\Program Files\Inno Setup 6\ISCC.exe",
+        (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe")
     )
     foreach ($Candidate in $Candidates) {
         if (Test-Path $Candidate) {

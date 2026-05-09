@@ -13,6 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
+hwp2pdf = "hwp2pdf.cli:main"
 hwp2pdf-gui = "hwp2pdf.app:main"
 
 [tool.setuptools.packages.find]
