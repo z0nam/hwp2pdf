@@ -30,6 +30,20 @@ This is a Windows GUI/CLI converter that uses Hancom Office COM automation to co
 - Safe temporary local conversion mode
 - CSV conversion log
 
+## 프로젝트 정보 / Project Info
+
+- License: MIT
+- Maintainer: Namun Cho
+- Contributors: Namun Cho, OpenAI Codex. See [CONTRIBUTORS.md](CONTRIBUTORS.md).
+- Issues: <https://github.com/z0nam/hwp2pdf/issues>
+- Releases: <https://github.com/z0nam/hwp2pdf/releases>
+
+- 라이선스: MIT
+- 관리자: Namun Cho
+- 기여자: Namun Cho, OpenAI Codex. [CONTRIBUTORS.md](CONTRIBUTORS.md)를 참고하세요.
+- 이슈: <https://github.com/z0nam/hwp2pdf/issues>
+- 릴리스: <https://github.com/z0nam/hwp2pdf/releases>
+
 ## 요구 사항 / Requirements
 
 - Windows
@@ -357,15 +371,41 @@ The same version is shown in the app window title.
 ## 프로젝트 구조 / Project Layout
 
 ```text
+.github/                issue and pull request templates
 assets/                 icon and static resources
 docs/                   project notes
+installer/              Inno Setup installer script
 scripts/                build and maintenance scripts
 src/hwp2pdf/            application package
 src/hwp_pdf_converter_app_safe.py
                         compatibility entrypoint for older local usage
+CODE_OF_CONDUCT.md      community behavior expectations
+CONTRIBUTING.md         contribution guide
+CONTRIBUTORS.md         contributor list
 hwp2pdf.spec            PyInstaller recipe
+LICENSE                 MIT license
 pyproject.toml          Python package metadata
+SECURITY.md             security reporting guide
 ```
+
+## 기여 / Contributing
+
+버그 리포트나 기능 제안은 GitHub Issues를 사용하세요. 변환 문제를 보고할 때는 Windows 버전, 한컴오피스 버전,
+앱 버전, GUI/CLI 사용 여부, 출력 형식, `hwp2pdf_log.csv` 내용을 함께 적어주면 재현에 도움이 됩니다.
+
+Use GitHub Issues for bug reports and feature requests. For conversion bugs, include the Windows
+version, Hancom Office version, app version, GUI/CLI usage, selected output format, and
+`hwp2pdf_log.csv` content if available.
+
+자세한 내용은 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고하세요.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
+## 라이선스 / License
+
+이 프로젝트는 MIT License로 배포됩니다. 자세한 내용은 [LICENSE](LICENSE)를 참고하세요.
+
+This project is released under the MIT License. See [LICENSE](LICENSE) for details.
 
 ## 변환 참고 사항 / Conversion Notes
 

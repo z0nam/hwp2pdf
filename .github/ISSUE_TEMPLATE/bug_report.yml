@@ -1,0 +1,76 @@
+name: Bug report
+description: Report a conversion, installation, or runtime problem
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Please do not attach confidential HWP/HWPX documents.
+  - type: input
+    id: app-version
+    attributes:
+      label: hwp2pdf version
+      description: Window title version or `hwp2pdf-cli --version`
+      placeholder: "2026.05.09.4"
+    validations:
+      required: true
+  - type: input
+    id: windows-version
+    attributes:
+      label: Windows version
+      placeholder: "Windows 11 24H2"
+    validations:
+      required: true
+  - type: input
+    id: hancom-version
+    attributes:
+      label: Hancom Office / HWP version
+      placeholder: "HWP 2022"
+    validations:
+      required: true
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Interface
+      options:
+        - GUI
+        - CLI
+        - Installer
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: input-type
+    attributes:
+      label: Input type
+      options:
+        - HWP
+        - HWPX
+        - Both
+    validations:
+      required: true
+  - type: dropdown
+    id: output-type
+    attributes:
+      label: Output type
+      options:
+        - PDF
+        - DOCX
+        - PDF and DOCX
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What did you do, and what happened?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: hwp2pdf_log.csv or CLI output
+      render: text
+    validations:
+      required: false
