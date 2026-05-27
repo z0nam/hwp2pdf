@@ -10,7 +10,7 @@ This is a Windows GUI/CLI converter that uses Hancom Office COM automation to co
 - GUI와 명령줄 CLI 지원
 - 출력 형식 PDF/DOCX 중 하나 또는 둘 다 선택
 - 기본 한국어 UI/로그와 영어 전환
-- GitHub Releases 기반 하루 1회 자동 업데이트 확인과 새 버전 업그레이드 버튼
+- GitHub Releases 기반 하루 1회 자동 업데이트 확인과 새 버전 직접 다운로드 버튼
 - 하위 폴더 포함/제외
 - 기존 PDF 덮어쓰기 또는 건너뛰기
 - 저장 전 한쪽 보기 강제 적용 옵션
@@ -22,7 +22,7 @@ This is a Windows GUI/CLI converter that uses Hancom Office COM automation to co
 - GUI and command-line CLI support
 - Select PDF output, DOCX output, or both
 - Korean UI/logs by default with an English switch
-- Automatic daily update check through GitHub Releases with an upgrade button when a newer version exists
+- Automatic daily update check through GitHub Releases with a direct download button when a newer version exists
 - Include or exclude subfolders
 - Overwrite or skip existing output files
 - Option to force one-page view before export

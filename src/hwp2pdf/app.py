@@ -63,11 +63,11 @@ TEXT = {
         "start": "변환 시작",
         "stop": "중지",
         "open_selected": "선택 위치 열기",
-        "upgrade": "업그레이드",
+        "upgrade": "최신 버전 다운로드",
         "update_status_checking": "업데이트 확인 중...",
         "update_status_current": "최신 버전입니다. 현재: {current}",
         "update_status_available": "새 버전이 있습니다. 현재: {current} / 최신: {latest}",
-        "update_status_no_release": "현재 버전: {current}. 아직 공개 릴리스가 없습니다.",
+        "update_status_no_release": "최신 버전입니다. 현재: {current}",
         "update_status_failed": "현재 버전: {current}. 업데이트 확인 불가",
         "ready": "준비",
         "log": "로그",
@@ -178,11 +178,11 @@ TEXT = {
         "start": "Start conversion",
         "stop": "Stop",
         "open_selected": "Open selected folder",
-        "upgrade": "Upgrade",
+        "upgrade": "Download latest",
         "update_status_checking": "Checking for updates...",
         "update_status_current": "Up to date. Current: {current}",
         "update_status_available": "New version available. Current: {current} / Latest: {latest}",
-        "update_status_no_release": "Current: {current}. No public release yet.",
+        "update_status_no_release": "Up to date. Current: {current}",
         "update_status_failed": "Current: {current}. Update check unavailable",
         "ready": "Ready",
         "log": "Log",
@@ -303,6 +303,33 @@ def latest_release_version(release: dict):
         if parsed:
             return value.lstrip("vV")
     return ""
+
+
+def latest_release_download_url(release: dict):
+    assets = release.get("assets") or []
+    if not isinstance(assets, list):
+        return ""
+
+    candidates = []
+    for asset in assets:
+        if not isinstance(asset, dict):
+            continue
+        name = str(asset.get("name") or "").lower()
+        url = str(asset.get("browser_download_url") or "").strip()
+        if name and url:
+            candidates.append((name, url))
+
+    preferred_patterns = (
+        ("setup", ".exe"),
+        ("windows", ".zip"),
+        (".exe",),
+        (".zip",),
+    )
+    for pattern in preferred_patterns:
+        for name, url in candidates:
+            if all(part in name for part in pattern):
+                return url
+    return candidates[0][1] if candidates else ""
 
 
 def fetch_latest_release():
@@ -703,6 +730,7 @@ class ConverterApp:
         self.update_status_var = tk.StringVar()
         self.upgrade_btn = None
         self.latest_release_url = GITHUB_RELEASES_PAGE_URL
+        self.latest_download_url = GITHUB_RELEASES_PAGE_URL
         self.update_check_running = False
         self.ui = {}
 
@@ -993,13 +1021,18 @@ class ConverterApp:
                     messagebox.showerror(APP_TITLE, payload)
 
                 elif kind == "update_done":
-                    status, latest, release_url, error_message = payload
+                    if len(payload) == 5:
+                        status, latest, release_url, download_url, error_message = payload
+                    else:
+                        status, latest, release_url, error_message = payload
+                        download_url = release_url
                     self.update_check_running = False
                     state = {
                         "checked_at": time.time(),
                         "status": status,
                         "latest": latest,
                         "release_url": release_url,
+                        "download_url": download_url,
                         "error": error_message,
                     }
                     save_update_state(state)
@@ -1011,7 +1044,7 @@ class ConverterApp:
         self.root.after(150, self._poll_log_queue)
 
     def open_latest_release(self):
-        webbrowser.open(self.latest_release_url or GITHUB_RELEASES_PAGE_URL)
+        webbrowser.open(self.latest_download_url or self.latest_release_url or GITHUB_RELEASES_PAGE_URL)
 
     def _show_upgrade_button(self, visible: bool):
         if visible:
@@ -1032,7 +1065,9 @@ class ConverterApp:
         status = state.get("status")
         latest = state.get("latest") or ""
         release_url = state.get("release_url") or GITHUB_RELEASES_PAGE_URL
+        download_url = state.get("download_url") or release_url
         self.latest_release_url = release_url
+        self.latest_download_url = download_url
 
         if status == "newer" and latest and parse_version(latest) > parse_version(__version__):
             self.update_status_var.set(self.tr("update_status_available", current=__version__, latest=latest))
@@ -1062,17 +1097,18 @@ class ConverterApp:
             release = fetch_latest_release()
             latest = latest_release_version(release)
             release_url = release.get("html_url") or GITHUB_RELEASES_PAGE_URL
+            download_url = latest_release_download_url(release) or release_url
             if latest and parse_version(latest) > parse_version(__version__):
-                self.log_queue.put(("update_done", ("newer", latest, release_url, "")))
+                self.log_queue.put(("update_done", ("newer", latest, release_url, download_url, "")))
             else:
-                self.log_queue.put(("update_done", ("current", latest or __version__, release_url, "")))
+                self.log_queue.put(("update_done", ("current", latest or __version__, release_url, download_url, "")))
         except urllib.error.HTTPError as e:
             if e.code == 404:
-                self.log_queue.put(("update_done", ("no_release", "", "", "")))
+                self.log_queue.put(("update_done", ("no_release", "", "", "", "")))
             else:
-                self.log_queue.put(("update_done", ("error", "", "", str(e))))
+                self.log_queue.put(("update_done", ("error", "", "", "", str(e))))
         except Exception as e:
-            self.log_queue.put(("update_done", ("error", "", "", str(e))))
+            self.log_queue.put(("update_done", ("error", "", "", "", str(e))))
 
     def start_conversion(self):
         if self.is_running:
