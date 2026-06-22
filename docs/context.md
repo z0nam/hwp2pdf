@@ -39,6 +39,7 @@ The older `src/hwp_pdf_converter_app_safe.py` path remains as a compatibility en
   upgrade button only when a newer release exists
 - Include or exclude subfolders
 - Overwrite or skip existing output files
+- When overwrite is off, existing zero-byte output files are treated as failed artifacts and regenerated
 - Force one-page view before export using Hancom `ViewZoom` with explicit
   `ZoomCustomDlg=1`, `ZoomCntX=1`, `ZoomCntY=1`, and `ZoomType=1`
 - Before PDF export, reset saved N-up printing by executing `PrintToPDFEx` with
@@ -46,6 +47,12 @@ The older `src/hwp_pdf_converter_app_safe.py` path remains as a compatibility en
 - When the force option is enabled for PDF, write the output directly through
   `PrintToPDFEx` with the target filename instead of `SaveAs(PDF)` so saved N-up
   print settings do not leak into the exported PDF
+- Enables Hancom `SetMessageBoxMode(0x10)` for the full conversion session so
+  confirmation/error dialogs during open/save are auto-confirmed and failed files can
+  be logged without blocking the batch
+- Watches modal dialogs owned by the current HWP process and clicks confirmation buttons
+  for known blocking Hancom errors. The message `복합 파일을 현재 구현하기에 너무 큽니다.`
+  is treated as a file-level conversion failure and logged before continuing.
 - Safe temp conversion through `C:\temp\hwp_convert_safe`
 - Progress UI
 - Estimated HWP/HWPX file count below the selected target path

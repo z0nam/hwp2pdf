@@ -35,6 +35,10 @@ SAVE_FORMAT_ALIASES = {
 }
 HWP_SECURITY_MODULE = ("FilePathCheckDLL", "FilePathCheckerModule")
 MESSAGE_BOX_AUTO_CONFIRM = 0x10
+HANCOM_BLOCKING_DIALOG_MESSAGES = (
+    "복합 파일을 현재 구현하기에 너무 큽니다.",
+)
+HANCOM_DIALOG_CONFIRM_BUTTONS = ("확인", "OK", "예", "Yes", "계속", "Continue", "닫기", "Close")
 HWP_FILEHEADER_STREAM = "FileHeader"
 HWP_FILE_SIGNATURE = b"HWP Document File"
 HWP_FLAG_COMPRESSED = 1 << 0
@@ -111,7 +115,7 @@ TEXT = {
         "force_one_page_mode": "한쪽 보기/모아찍기 해제 강제 적용: {state}",
         "nup_print_reset": "기존 인쇄 방식이 '{method}'로 설정되어 있어 PDF 저장 전 '자동 인쇄(1페이지)'로 강제 적용했습니다.",
         "output_formats": "출력 형식: {formats}",
-        "auto_confirm_docx": "DOCX 호환 문서 확인창 자동 확인: 켜짐",
+        "auto_confirm_docx": "한컴 확인/오류 대화상자 자동 확인: 켜짐",
         "security_module": "HWP 파일 접근 보안 모듈: {state}",
         "on": "켜짐",
         "off": "꺼짐",
@@ -162,6 +166,7 @@ TEXT = {
         "view_failed": "한쪽 보기 설정에 실패했습니다.",
         "pdf_print_method_failed": "PDF 인쇄 방식 초기화에 실패했습니다.",
         "pdf_print_save_failed": "한컴 PDF 인쇄 방식으로 PDF 저장에 실패했습니다.",
+        "hancom_dialog_blocked": "한컴 오류 대화상자가 표시되어 해당 파일을 실패 처리했습니다: {message}",
     },
     "en": {
         "target_label": "Root folder or file",
@@ -226,7 +231,7 @@ TEXT = {
         "force_one_page_mode": "Force one-page view / reset N-up printing: {state}",
         "nup_print_reset": "Existing print method was '{method}', so it was forced to 'Automatic print (one page)' before PDF export.",
         "output_formats": "Output formats: {formats}",
-        "auto_confirm_docx": "Auto-confirm DOCX compatibility dialogs: ON",
+        "auto_confirm_docx": "Auto-confirm Hancom confirmation/error dialogs: ON",
         "security_module": "HWP file access security module: {state}",
         "on": "ON",
         "off": "OFF",
@@ -277,6 +282,7 @@ TEXT = {
         "view_failed": "ViewZoom one-page setting failed",
         "pdf_print_method_failed": "PDF print method reset failed",
         "pdf_print_save_failed": "PDF export through Hancom PDF printing failed",
+        "hancom_dialog_blocked": "A Hancom error dialog appeared, so this file was marked as failed: {message}",
     },
 }
 
@@ -695,6 +701,126 @@ def restore_message_box_mode(hwp, previous_mode):
         hwp.SetMessageBoxMode(previous_mode)
     except Exception:
         pass
+
+
+def hwp_process_id(hwp):
+    try:
+        hwnd = int(hwp.XHwpWindows.Item(0).Handle)
+    except Exception:
+        return None
+
+    try:
+        import win32process
+
+        _thread_id, pid = win32process.GetWindowThreadProcessId(hwnd)
+        return pid or None
+    except Exception:
+        return None
+
+
+class HancomDialogWatcher:
+    def __init__(self, process_id):
+        self.process_id = process_id
+        self.stop_event = threading.Event()
+        self.thread = None
+        self.lock = threading.Lock()
+        self.closed_messages = []
+
+    def start(self):
+        if not self.process_id:
+            return
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def stop(self):
+        self.stop_event.set()
+        if self.thread:
+            self.thread.join(timeout=1)
+
+    def mark(self):
+        with self.lock:
+            return len(self.closed_messages)
+
+    def blocking_message_since(self, marker):
+        with self.lock:
+            messages = self.closed_messages[marker:]
+        for message in messages:
+            if any(text in message for text in HANCOM_BLOCKING_DIALOG_MESSAGES):
+                return message
+        return ""
+
+    def _record(self, message):
+        with self.lock:
+            if message and message not in self.closed_messages:
+                self.closed_messages.append(message)
+
+    def _run(self):
+        try:
+            import win32con
+            import win32gui
+            import win32process
+        except Exception:
+            return
+
+        def child_texts(hwnd):
+            values = []
+
+            def enum_child(child_hwnd, _param):
+                try:
+                    text = win32gui.GetWindowText(child_hwnd).strip()
+                    if text:
+                        values.append((child_hwnd, text))
+                except Exception:
+                    pass
+
+            try:
+                win32gui.EnumChildWindows(hwnd, enum_child, None)
+            except Exception:
+                pass
+            return values
+
+        def click_confirm_button(hwnd, children):
+            for child_hwnd, text in children:
+                if text.replace("&", "") in HANCOM_DIALOG_CONFIRM_BUTTONS:
+                    try:
+                        win32gui.SendMessage(child_hwnd, win32con.BM_CLICK, 0, 0)
+                        return True
+                    except Exception:
+                        pass
+            try:
+                win32gui.PostMessage(hwnd, win32con.WM_COMMAND, win32con.IDOK, 0)
+                return True
+            except Exception:
+                return False
+
+        def enum_window(hwnd, _param):
+            try:
+                if not win32gui.IsWindowVisible(hwnd):
+                    return True
+                _thread_id, pid = win32process.GetWindowThreadProcessId(hwnd)
+                if pid != self.process_id:
+                    return True
+                if win32gui.GetClassName(hwnd) != "#32770":
+                    return True
+
+                title = win32gui.GetWindowText(hwnd).strip()
+                children = child_texts(hwnd)
+                message = " | ".join([text for text in [title, *(value for _hwnd, value in children)] if text])
+                if not message:
+                    return True
+
+                if click_confirm_button(hwnd, children):
+                    self._record(message)
+            except Exception:
+                pass
+            return True
+
+        while not self.stop_event.is_set():
+            try:
+                win32gui.EnumWindows(enum_window, None)
+            except Exception:
+                pass
+            self.stop_event.wait(0.25)
 
 
 def register_hwp_security_module(hwp):
@@ -1258,10 +1384,21 @@ class ConverterApp:
                 self.log_queue.put(("log", translate(lang, "start_hwp")))
                 hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
                 self.log_queue.put(("log", translate(lang, "hwp_started")))
+                global_message_box_mode = None
+                dialog_watcher = None
                 try:
                     hwp.XHwpWindows.Item(0).Visible = False
                 except Exception:
                     pass
+                try:
+                    _enabled, global_message_box_mode, _detail = enable_auto_confirm_message_boxes(hwp)
+                except Exception:
+                    global_message_box_mode = None
+                try:
+                    dialog_watcher = HancomDialogWatcher(hwp_process_id(hwp))
+                    dialog_watcher.start()
+                except Exception:
+                    dialog_watcher = None
 
                 self.log_queue.put(("log", translate(lang, "register_security")))
                 security_ok, security_detail = register_hwp_security_module(hwp)
@@ -1327,36 +1464,45 @@ class ConverterApp:
 
                             temp_input = None
                             temp_output = None
+                            dialog_marker = dialog_watcher.mark() if dialog_watcher else 0
 
                             try:
                                 if output_path.exists() and not overwrite:
-                                    skipped += 1
-                                    msg = translate(lang, "skipped_exists", format=output_format)
-                                    writer.writerow(["SKIPPED", str(src_path), str(output_path), msg])
-                                    self.log_queue.put(
-                                        (
-                                            "log",
+                                    try:
+                                        output_size = output_path.stat().st_size
+                                    except OSError:
+                                        output_size = 1
+
+                                    if output_size > 0:
+                                        skipped += 1
+                                        msg = translate(lang, "skipped_exists", format=output_format)
+                                        writer.writerow(["SKIPPED", str(src_path), str(output_path), msg])
+                                        self.log_queue.put(
                                             (
-                                                translate(
-                                                    lang, "skipped_log", format=output_format, path=output_path
+                                                "log",
+                                                (
+                                                    translate(
+                                                        lang, "skipped_log", format=output_format, path=output_path
+                                                    ),
+                                                    "warning",
                                                 ),
-                                                "warning",
-                                            ),
+                                            )
                                         )
-                                    )
-                                    self.log_queue.put(
-                                        (
-                                            "progress",
+                                        self.log_queue.put(
                                             (
-                                                job_index,
-                                                total_jobs,
-                                                translate(
-                                                    lang, "progress_skipped", current=job_index, total=total_jobs
+                                                "progress",
+                                                (
+                                                    job_index,
+                                                    total_jobs,
+                                                    translate(
+                                                        lang, "progress_skipped", current=job_index, total=total_jobs
+                                                    ),
                                                 ),
-                                            ),
+                                            )
                                         )
-                                    )
-                                    continue
+                                        continue
+
+                                    output_path.unlink()
 
                                 blocked_reason = blocked_conversion_reason(src_path, output_format, lang)
                                 if blocked_reason:
@@ -1433,6 +1579,13 @@ class ConverterApp:
                                 else:
                                     actual_save_format = save_document_as(hwp, save_target, output_format, lang)
 
+                                if dialog_watcher:
+                                    blocking_message = dialog_watcher.blocking_message_since(dialog_marker)
+                                    if blocking_message:
+                                        raise RuntimeError(
+                                            translate(lang, "hancom_dialog_blocked", message=blocking_message)
+                                        )
+
                                 try:
                                     hwp.Clear(1)
                                 except Exception:
@@ -1460,13 +1613,24 @@ class ConverterApp:
 
                             except Exception as e:
                                 failed += 1
-                                writer.writerow(["FAILED", str(src_path), str(output_path), str(e)])
+                                failure_message = str(e)
+                                if dialog_watcher:
+                                    blocking_message = dialog_watcher.blocking_message_since(dialog_marker)
+                                    if blocking_message:
+                                        failure_message = translate(
+                                            lang, "hancom_dialog_blocked", message=blocking_message
+                                        )
+                                writer.writerow(["FAILED", str(src_path), str(output_path), failure_message])
                                 self.log_queue.put(
                                     (
                                         "log",
                                         (
                                             translate(
-                                                lang, "failed_log", format=output_format, path=src_path, message=e
+                                                lang,
+                                                "failed_log",
+                                                format=output_format,
+                                                path=src_path,
+                                                message=failure_message,
                                             ),
                                             "error",
                                         ),
@@ -1501,6 +1665,16 @@ class ConverterApp:
                             break
 
             finally:
+                try:
+                    if "dialog_watcher" in locals() and dialog_watcher is not None:
+                        dialog_watcher.stop()
+                except Exception:
+                    pass
+                try:
+                    if hwp is not None and "global_message_box_mode" in locals():
+                        restore_message_box_mode(hwp, global_message_box_mode)
+                except Exception:
+                    pass
                 try:
                     if hwp is not None:
                         hwp.Quit()

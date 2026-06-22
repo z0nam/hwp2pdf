@@ -14,7 +14,7 @@ This is a Windows GUI/CLI converter that uses Hancom Office COM automation to co
 - 하위 폴더 포함/제외
 - 기존 PDF 덮어쓰기 또는 건너뛰기
 - 저장 전 한쪽 보기 강제 적용 옵션
-- DOCX 저장 시 한컴 호환 문서 확인창 자동 확인
+- 한컴 확인/오류 대화상자 자동 확인 후 실패 파일은 로그에 기록
 - 안전한 임시 폴더 변환 모드
 - 변환 결과 CSV 로그 생성
 
@@ -26,7 +26,7 @@ This is a Windows GUI/CLI converter that uses Hancom Office COM automation to co
 - Include or exclude subfolders
 - Overwrite or skip existing output files
 - Option to force one-page view before export
-- Auto-confirm Hancom compatibility warning dialogs during DOCX export
+- Auto-confirm Hancom confirmation/error dialogs and log failed files
 - Safe temporary local conversion mode
 - CSV conversion log
 
@@ -414,9 +414,11 @@ This project is released under the MIT License. See [LICENSE](LICENSE) for detai
 - `hwp2pdf_log.csv`는 선택한 루트 폴더에 저장됩니다.
 - DOCX 출력 품질은 한컴오피스의 DOCX 내보내기 품질에 따라 달라집니다.
 - 앱은 가능한 경우 한컴 파일 경로 보안 모듈을 등록합니다. 그래도 한컴에서 자동화 접근 허용 여부를 물으면 영구 허용을 선택하세요. 그렇지 않으면 COM 변환이 대기 상태로 멈출 수 있습니다.
+- `복합 파일을 현재 구현하기에 너무 큽니다.` 같은 한컴 내부 한계 오류는 해당 파일 실패로 기록하고 다음 파일을 계속 처리합니다.
 
 - Safe temp mode copies each source file to `C:\temp\hwp_convert_safe` before conversion.
 - PDF or DOCX files are written beside the original files.
 - `hwp2pdf_log.csv` is written to the selected root folder.
 - DOCX output fidelity depends on Hancom Office's DOCX export support.
 - The app registers Hancom's file path security module when available. If Hancom still asks whether to allow automation access, allow it permanently; otherwise COM conversion can wait indefinitely.
+- Hancom internal limitation errors such as `복합 파일을 현재 구현하기에 너무 큽니다.` are logged as file-level failures, then the batch continues.
