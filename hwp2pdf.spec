@@ -9,6 +9,15 @@ PYTHON_ROOT = Path(sys.base_prefix)
 PYTHON_DLLS = PYTHON_ROOT / "DLLs"
 
 
+SECURITY_DLL_X86 = ROOT / "vendor" / "x86" / "FilePathCheckerModule.dll"
+SECURITY_DLL_X64 = ROOT / "vendor" / "x64" / "FilePathCheckerModule.dll"
+SECURITY_DLL_DATAS = []
+if SECURITY_DLL_X86.exists():
+    SECURITY_DLL_DATAS.append((str(SECURITY_DLL_X86), "vendor/x86"))
+if SECURITY_DLL_X64.exists():
+    SECURITY_DLL_DATAS.append((str(SECURITY_DLL_X64), "vendor/x64"))
+
+
 a_gui = Analysis(
     ["src/hwp2pdf/__main__.py"],
     pathex=[str(ROOT / "src")],
@@ -21,8 +30,13 @@ a_gui = Analysis(
         (str(PYTHON_ROOT / "Lib" / "tkinter"), "tkinter"),
         (str(PYTHON_ROOT / "tcl" / "tcl8.6"), "_tcl_data"),
         (str(PYTHON_ROOT / "tcl" / "tk8.6"), "_tk_data"),
+        *SECURITY_DLL_DATAS,
     ],
-    hiddenimports=["_tkinter", "pythoncom", "pywintypes", "win32com", "win32com.client"],
+    hiddenimports=[
+        "_tkinter", "pythoncom", "pywintypes",
+        "win32com", "win32com.client",
+        "win32gui", "win32con", "win32process",
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[str(ROOT / "scripts" / "pyi_rth_tkinter_paths.py")],
@@ -57,8 +71,12 @@ a_cli = Analysis(
     ["src/hwp2pdf/cli.py"],
     pathex=[str(ROOT / "src")],
     binaries=[],
-    datas=[],
-    hiddenimports=["pythoncom", "pywintypes", "win32com", "win32com.client"],
+    datas=SECURITY_DLL_DATAS,
+    hiddenimports=[
+        "pythoncom", "pywintypes",
+        "win32com", "win32com.client",
+        "win32gui", "win32con", "win32process",
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

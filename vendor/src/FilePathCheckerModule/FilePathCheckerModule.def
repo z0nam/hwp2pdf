@@ -1,0 +1,3 @@
+LIBRARY FilePathCheckerModule
+EXPORTS
+    IsAccessiblePath

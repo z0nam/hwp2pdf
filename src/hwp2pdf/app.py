@@ -5,6 +5,7 @@ import queue
 import shutil
 import struct
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -34,9 +35,14 @@ SAVE_FORMAT_ALIASES = {
     "DOCX": ("OOXML", "DOCX", "MSWORD"),
 }
 HWP_SECURITY_MODULE = ("FilePathCheckDLL", "FilePathCheckerModule")
+HWP_SECURITY_REG_KEY = r"Software\HNC\HwpAutomation\Modules"
+HWP_SECURITY_REG_VALUE = "FilePathCheckerModule"
+HWP_SECURITY_DLL_NAME = "FilePathCheckerModule.dll"
+HWP_SECURITY_INSTALL_DIR = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "hwp2pdf" / "security"
 MESSAGE_BOX_AUTO_CONFIRM = 0x10
 HANCOM_BLOCKING_DIALOG_MESSAGES = (
     "복합 파일을 현재 구현하기에 너무 큽니다.",
+    "알 수 없는 형식의 파일입니다.",
 )
 HANCOM_DIALOG_CONFIRM_BUTTONS = ("확인", "OK", "예", "Yes", "계속", "Continue", "닫기", "Close")
 HWP_FILEHEADER_STREAM = "FileHeader"
@@ -109,6 +115,9 @@ TEXT = {
         "start_hwp": "HWPFrame.HwpObject 시작 중...",
         "hwp_started": "HWPFrame.HwpObject가 시작되었습니다.",
         "register_security": "한컴 파일 접근 보안 모듈 등록 중...",
+        "security_self_registered": "보안 모듈 자가등록 완료: {detail}",
+        "security_bundle_missing": "번들 보안 모듈 DLL을 찾지 못해 자가등록을 건너뜁니다: {detail}",
+        "security_self_register_failed": "보안 모듈 자가등록 실패({state}): {detail}",
         "found_files": "대상 파일 {count}개 발견: {extensions}",
         "csv_log": "CSV 로그: {path}",
         "safe_temp_mode": "안전 임시 폴더 모드: {state}",
@@ -225,6 +234,9 @@ TEXT = {
         "start_hwp": "Starting HWPFrame.HwpObject...",
         "hwp_started": "HWPFrame.HwpObject started.",
         "register_security": "Registering HWP file access security module...",
+        "security_self_registered": "Security module self-registered: {detail}",
+        "security_bundle_missing": "Bundled security module DLL not found; skipping self-registration: {detail}",
+        "security_self_register_failed": "Security module self-registration failed ({state}): {detail}",
         "found_files": "Found {count} file(s): {extensions}",
         "csv_log": "CSV log: {path}",
         "safe_temp_mode": "Safe temp mode: {state}",
@@ -823,6 +835,170 @@ class HancomDialogWatcher:
             self.stop_event.wait(0.25)
 
 
+def _resource_root() -> Path:
+    base = getattr(sys, "_MEIPASS", None)
+    if base:
+        return Path(base)
+    return Path(__file__).resolve().parent.parent.parent
+
+
+def _bundled_security_dll(arch: str) -> Path:
+    return _resource_root() / "vendor" / arch / HWP_SECURITY_DLL_NAME
+
+
+def _hwp_install_path() -> Path | None:
+    import winreg
+
+    candidates = [
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\HNC\HwpRun"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Hancom\HwpRun"),
+    ]
+    for hive, subkey in candidates:
+        try:
+            with winreg.OpenKey(hive, subkey) as key:
+                index = 0
+                while True:
+                    try:
+                        version_name = winreg.EnumKey(key, index)
+                    except OSError:
+                        break
+                    index += 1
+                    try:
+                        with winreg.OpenKey(key, version_name) as version_key:
+                            for name in ("Path", "BinPath", ""):
+                                try:
+                                    value, _ = winreg.QueryValueEx(version_key, name)
+                                    if isinstance(value, str) and value.strip():
+                                        return Path(value).expanduser()
+                                except OSError:
+                                    continue
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+
+    try:
+        import win32com.client
+
+        hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
+        try:
+            install_path = hwp.GetHwpInfo("InstallPath")
+            if isinstance(install_path, str) and install_path.strip():
+                return Path(install_path).expanduser()
+        finally:
+            try:
+                hwp.Quit()
+            except Exception:
+                pass
+    except Exception:
+        return None
+
+    return None
+
+
+def _pe_machine(path: Path) -> int | None:
+    try:
+        with path.open("rb") as f:
+            dos = f.read(64)
+            if len(dos) < 64 or dos[:2] != b"MZ":
+                return None
+            (e_lfanew,) = struct.unpack("<I", dos[60:64])
+            f.seek(e_lfanew)
+            sig = f.read(4)
+            if sig != b"PE\0\0":
+                return None
+            machine_bytes = f.read(2)
+            if len(machine_bytes) != 2:
+                return None
+            return struct.unpack("<H", machine_bytes)[0]
+    except OSError:
+        return None
+
+
+def detect_hwp_arch() -> str:
+    install_path = _hwp_install_path()
+    if install_path:
+        hwp_exe = install_path / "Hwp.exe" if install_path.is_dir() else install_path
+        if hwp_exe.exists():
+            machine = _pe_machine(hwp_exe)
+            if machine == 0x8664:
+                return "x64"
+            if machine == 0x014C:
+                return "x86"
+        parts = {part.lower() for part in install_path.parts}
+        if "program files (x86)" in parts:
+            return "x86"
+        if "program files" in parts:
+            return "x64"
+
+    return "x86"
+
+
+def _registered_security_dll() -> Path | None:
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, HWP_SECURITY_REG_KEY) as key:
+            value, _ = winreg.QueryValueEx(key, HWP_SECURITY_REG_VALUE)
+            if isinstance(value, str) and value.strip():
+                return Path(value)
+    except OSError:
+        return None
+    return None
+
+
+def ensure_hwp_security_module_registered():
+    """Make sure HKCU\\Software\\HNC\\HwpAutomation\\Modules\\FilePathCheckerModule
+    points to a usable DLL. Copies the bundled stub for the matching HWP bitness
+    into %LOCALAPPDATA%\\hwp2pdf\\security\\ and writes the registry value when needed.
+
+    Returns (state, detail) where state is one of:
+      "already": registry already had a valid DLL
+      "registered": we copied the DLL and wrote the registry
+      "bundled-missing": vendor DLL is not bundled with this build
+      "error: <reason>": something else went wrong
+    """
+    if os.name != "nt":
+        return "error: non-windows", ""
+
+    arch = detect_hwp_arch()
+    expected_machine = 0x8664 if arch == "x64" else 0x014C
+
+    existing = _registered_security_dll()
+    if existing and existing.exists() and existing.stat().st_size > 0:
+        existing_machine = _pe_machine(existing)
+        if existing_machine is None or existing_machine == expected_machine:
+            return "already", str(existing)
+
+    source = _bundled_security_dll(arch)
+    if not source.exists():
+        return "bundled-missing", str(source)
+
+    try:
+        HWP_SECURITY_INSTALL_DIR.mkdir(parents=True, exist_ok=True)
+        target = HWP_SECURITY_INSTALL_DIR / HWP_SECURITY_DLL_NAME
+        needs_copy = True
+        if target.exists():
+            try:
+                needs_copy = target.stat().st_size != source.stat().st_size
+            except OSError:
+                needs_copy = True
+        if needs_copy:
+            shutil.copy2(source, target)
+    except Exception as e:
+        return f"error: copy: {e}", str(source)
+
+    try:
+        import winreg
+
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, HWP_SECURITY_REG_KEY) as key:
+            winreg.SetValueEx(key, HWP_SECURITY_REG_VALUE, 0, winreg.REG_SZ, str(target))
+    except Exception as e:
+        return f"error: registry: {e}", str(target)
+
+    return "registered", f"{arch}:{target}"
+
+
 def register_hwp_security_module(hwp):
     try:
         module_name, module_class = HWP_SECURITY_MODULE
@@ -903,9 +1079,7 @@ class ConverterApp:
 
         ttk.Entry(path_row, textvariable=self.folder_var).grid(row=0, column=0, sticky="ew", padx=(0, 8))
         self.ui["browse_btn"] = ttk.Button(path_row, command=self.browse_folder)
-        self.ui["browse_btn"].grid(
-            row=0, column=1, sticky="e", padx=(0, 8)
-        )
+        self.ui["browse_btn"].grid(row=0, column=1, sticky="e", padx=(0, 8))
         self.ui["pick_btn"] = ttk.Button(path_row, command=self.pick_file_folder)
         self.ui["pick_btn"].grid(row=0, column=2, sticky="e")
         self.ui["file_count_label"] = ttk.Label(top, textvariable=self.file_count_var)
@@ -1023,7 +1197,9 @@ class ConverterApp:
         if not initial_dir or not os.path.isdir(initial_dir):
             initial_dir = str(Path.home())
 
-        folder = filedialog.askdirectory(parent=self.root, title=self.tr("select_folder_title"), initialdir=initial_dir)
+        folder = filedialog.askdirectory(
+            parent=self.root, title=self.tr("select_folder_title"), initialdir=initial_dir
+        )
         if folder:
             self.folder_var.set(folder)
 
@@ -1401,6 +1577,36 @@ class ConverterApp:
                     dialog_watcher = None
 
                 self.log_queue.put(("log", translate(lang, "register_security")))
+                self_register_state, self_register_detail = ensure_hwp_security_module_registered()
+                if self_register_state == "registered":
+                    self.log_queue.put(
+                        ("log", translate(lang, "security_self_registered", detail=self_register_detail))
+                    )
+                elif self_register_state == "bundled-missing":
+                    self.log_queue.put(
+                        (
+                            "log",
+                            (
+                                translate(lang, "security_bundle_missing", detail=self_register_detail),
+                                "warning",
+                            ),
+                        )
+                    )
+                elif self_register_state.startswith("error"):
+                    self.log_queue.put(
+                        (
+                            "log",
+                            (
+                                translate(
+                                    lang,
+                                    "security_self_register_failed",
+                                    state=self_register_state,
+                                    detail=self_register_detail,
+                                ),
+                                "warning",
+                            ),
+                        )
+                    )
                 security_ok, security_detail = register_hwp_security_module(hwp)
 
                 on_label = translate(lang, "on")
