@@ -6,6 +6,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import textwrap
 import threading
 import time
 import urllib.error
@@ -23,6 +24,7 @@ GITHUB_RELEASES_API_URL = "https://api.github.com/repos/z0nam/hwp2pdf/releases/l
 GITHUB_RELEASES_PAGE_URL = "https://github.com/z0nam/hwp2pdf/releases/latest"
 UPDATE_CHECK_INTERVAL_SECONDS = 24 * 60 * 60
 UPDATE_STATE_PATH = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "hwp2pdf" / "update_state.json"
+UPDATE_DOWNLOAD_DIR = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "hwp2pdf" / "updates"
 DEFAULT_OPEN_OPTION = "forceopen:true;versionwarning:false;"
 TEMP_WORKDIR = Path(r"C:\temp\hwp_convert_safe")
 BASE_EXTENSIONS = (".hwp", ".hwpx")
@@ -74,6 +76,13 @@ TEXT = {
         "stop": "중지",
         "open_selected": "선택 위치 열기",
         "upgrade": "최신 버전 다운로드",
+        "auto_update": "지금 자동 업데이트",
+        "auto_update_confirm": "v{latest}로 자동 업데이트할까요?\n\n다운로드 후 설치를 시작하며 hwp2pdf가 재시작됩니다.\n관리자 권한 요청이 한 번 표시될 수 있습니다.",
+        "auto_update_busy": "변환이 진행 중입니다. 끝나면 다시 시도하세요.",
+        "auto_update_portable": "자동 업데이트는 설치본에서만 지원됩니다. 브라우저에서 직접 다운로드할까요?",
+        "auto_update_downloading": "업데이트 다운로드 중... {pct}%",
+        "auto_update_installing": "설치 중... 잠시 후 hwp2pdf가 재시작됩니다.",
+        "auto_update_failed": "자동 업데이트 실패: {error}",
         "update_status_checking": "업데이트 확인 중...",
         "update_status_current": "최신 버전입니다. 현재: {current}",
         "update_status_available": "새 버전이 있습니다. 현재: {current} / 최신: {latest}",
@@ -193,6 +202,13 @@ TEXT = {
         "stop": "Stop",
         "open_selected": "Open selected folder",
         "upgrade": "Download latest",
+        "auto_update": "Auto-update now",
+        "auto_update_confirm": "Auto-update to v{latest}?\n\nThe update will be downloaded, installed, and hwp2pdf will restart.\nYou may see a one-time UAC prompt.",
+        "auto_update_busy": "A conversion is running. Try again when it finishes.",
+        "auto_update_portable": "Auto-update is only supported for the installed build. Open the browser to download manually?",
+        "auto_update_downloading": "Downloading update... {pct}%",
+        "auto_update_installing": "Installing... hwp2pdf will restart shortly.",
+        "auto_update_failed": "Auto-update failed: {error}",
         "update_status_checking": "Checking for updates...",
         "update_status_current": "Up to date. Current: {current}",
         "update_status_available": "New version available. Current: {current} / Latest: {latest}",
@@ -386,6 +402,26 @@ def should_check_updates(state: dict):
     except (TypeError, ValueError):
         checked_at = 0
     return time.time() - checked_at >= UPDATE_CHECK_INTERVAL_SECONDS
+
+
+def is_installed_build() -> bool:
+    """True when this exe was placed by the Inno Setup installer (its
+    unins000.exe / .dat marker sits next to the exe). PyInstaller portable
+    builds and dev runs return False."""
+    if getattr(sys, "_MEIPASS", None) is None:
+        return False
+    try:
+        exe_dir = Path(sys.executable).resolve().parent
+    except Exception:
+        return False
+    return (exe_dir / "unins000.exe").exists() or (exe_dir / "unins000.dat").exists()
+
+
+def is_setup_asset_url(url: str) -> bool:
+    if not url:
+        return False
+    name = url.rsplit("/", 1)[-1].lower()
+    return name.startswith("hwp2pdf-setup-") and name.endswith(".exe")
 
 
 def ensure_pywin32():
@@ -1089,6 +1125,9 @@ class ConverterApp:
         update_row.grid(row=3, column=0, sticky="w", pady=(4, 0))
         self.ui["update_status_label"] = ttk.Label(update_row, textvariable=self.update_status_var)
         self.ui["update_status_label"].pack(side="left")
+        self.auto_update_btn = ttk.Button(update_row, command=self.start_auto_update)
+        self.auto_update_btn.pack(side="left", padx=(8, 0))
+        self.auto_update_btn.pack_forget()
         self.upgrade_btn = ttk.Button(update_row, command=self.open_latest_release)
         self.upgrade_btn.pack(side="left", padx=(8, 0))
         self.upgrade_btn.pack_forget()
@@ -1182,6 +1221,7 @@ class ConverterApp:
         self.stop_btn.configure(text=self.tr("stop"))
         self.ui["open_btn"].configure(text=self.tr("open_selected"))
         self.upgrade_btn.configure(text=self.tr("upgrade"))
+        self.auto_update_btn.configure(text=self.tr("auto_update"))
         self.ui["log_label"].configure(text=self.tr("log"))
         self.ui["note_frame"].configure(text=self.tr("notes_title"))
         self.ui["notes_label"].configure(text=self.tr("notes"))
@@ -1322,6 +1362,19 @@ class ConverterApp:
                     self.append_log(self.tr("error_log", message=payload), "error")
                     messagebox.showerror(APP_TITLE, payload)
 
+                elif kind == "update_dl_progress":
+                    self.update_status_var.set(self.tr("auto_update_downloading", pct=payload))
+
+                elif kind == "update_dl_error":
+                    self.auto_update_btn.state(["!disabled"])
+                    self.upgrade_btn.state(["!disabled"])
+                    self._apply_cached_update_state()
+                    messagebox.showerror(APP_TITLE, self.tr("auto_update_failed", error=payload))
+
+                elif kind == "update_relaunch":
+                    self.update_status_var.set(self.tr("auto_update_installing"))
+                    self.root.after(1500, self._exit_for_update)
+
                 elif kind == "update_done":
                     if len(payload) == 5:
                         status, latest, release_url, download_url, error_message = payload
@@ -1355,6 +1408,13 @@ class ConverterApp:
         else:
             self.upgrade_btn.pack_forget()
 
+    def _show_auto_update_button(self, visible: bool):
+        if visible:
+            if not self.auto_update_btn.winfo_manager():
+                self.auto_update_btn.pack(side="left", padx=(8, 0))
+        else:
+            self.auto_update_btn.pack_forget()
+
     def _apply_cached_update_state(self):
         state = load_update_state()
         if state:
@@ -1374,15 +1434,122 @@ class ConverterApp:
         if status == "newer" and latest and parse_version(latest) > parse_version(__version__):
             self.update_status_var.set(self.tr("update_status_available", current=__version__, latest=latest))
             self._show_upgrade_button(True)
+            self._show_auto_update_button(
+                is_installed_build() and is_setup_asset_url(self.latest_download_url)
+            )
         elif status == "no_release":
             self.update_status_var.set(self.tr("update_status_no_release", current=__version__))
             self._show_upgrade_button(False)
+            self._show_auto_update_button(False)
         elif status == "error":
             self.update_status_var.set(self.tr("update_status_failed", current=__version__))
             self._show_upgrade_button(False)
+            self._show_auto_update_button(False)
         else:
             self.update_status_var.set(self.tr("update_status_current", current=__version__))
             self._show_upgrade_button(False)
+            self._show_auto_update_button(False)
+
+    def start_auto_update(self):
+        if self.is_running:
+            messagebox.showwarning(APP_TITLE, self.tr("auto_update_busy"))
+            return
+        if not is_setup_asset_url(self.latest_download_url):
+            self.open_latest_release()
+            return
+        if not is_installed_build():
+            if messagebox.askyesno(APP_TITLE, self.tr("auto_update_portable")):
+                self.open_latest_release()
+            return
+        state = load_update_state()
+        latest = state.get("latest") or ""
+        if not messagebox.askyesno(APP_TITLE, self.tr("auto_update_confirm", latest=latest)):
+            return
+        self.auto_update_btn.state(["disabled"])
+        self.upgrade_btn.state(["disabled"])
+        threading.Thread(
+            target=self._auto_update_worker, args=(self.latest_download_url,), daemon=True
+        ).start()
+
+    def _auto_update_worker(self, url):
+        try:
+            UPDATE_DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+            dest = UPDATE_DOWNLOAD_DIR / url.rsplit("/", 1)[-1]
+            try:
+                if dest.exists():
+                    dest.unlink()
+            except OSError:
+                pass
+            req = urllib.request.Request(
+                url, headers={"User-Agent": f"hwp2pdf/{__version__}", "Accept": "application/octet-stream"}
+            )
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                total = int(resp.headers.get("Content-Length") or 0)
+                written = 0
+                last_pct = -5
+                with dest.open("wb") as f:
+                    while True:
+                        chunk = resp.read(131072)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        written += len(chunk)
+                        pct = int(100 * written / total) if total else 0
+                        if pct - last_pct >= 2:
+                            self.log_queue.put(("update_dl_progress", pct))
+                            last_pct = pct
+            self._launch_installer_and_signal_exit(dest)
+        except Exception as e:
+            self.log_queue.put(("update_dl_error", str(e)))
+
+    def _launch_installer_and_signal_exit(self, setup_path: Path):
+        our_exe = sys.executable
+        ps_path = UPDATE_DOWNLOAD_DIR / "hwp2pdf-update.ps1"
+        script = textwrap.dedent(f"""
+            $ErrorActionPreference = 'Continue'
+            Start-Sleep -Seconds 2
+            try {{
+                $p = Start-Process -FilePath {self._ps_quote(setup_path)} `
+                    -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CLOSEAPPLICATIONS','/RESTARTAPPLICATIONS' `
+                    -Verb RunAs -PassThru -Wait
+                if ($p.ExitCode -eq 0) {{
+                    Start-Sleep -Seconds 2
+                    if (Test-Path -LiteralPath {self._ps_quote(our_exe)}) {{
+                        Start-Process -FilePath {self._ps_quote(our_exe)}
+                    }}
+                }}
+            }} catch {{}}
+            Remove-Item -LiteralPath {self._ps_quote(ps_path)} -Force -ErrorAction SilentlyContinue
+        """).strip()
+        ps_path.write_text(script, encoding="utf-8-sig")
+        DETACHED_PROCESS = 0x00000008
+        CREATE_NEW_PROCESS_GROUP = 0x00000200
+        subprocess.Popen(
+            [
+                "powershell",
+                "-NoProfile",
+                "-WindowStyle",
+                "Hidden",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(ps_path),
+            ],
+            creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+            close_fds=True,
+        )
+        self.log_queue.put(("update_relaunch", None))
+
+    @staticmethod
+    def _ps_quote(value) -> str:
+        return "'" + str(value).replace("'", "''") + "'"
+
+    def _exit_for_update(self):
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
+        raise SystemExit(0)
 
     def check_for_updates_if_due(self):
         state = load_update_state()
