@@ -54,6 +54,22 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_installer.ps1
 - Update `README.md` and `docs/context.md` when behavior changes.
 - Test both GUI and CLI paths when conversion behavior changes.
 
+## Release Flow
+
+`CHANGELOG.md` is the single source of truth for the release history; the
+GitHub Release page mirrors it. When cutting a release:
+
+1. Move the relevant entries out of `## [Unreleased]` into a new
+   `## [yyyy.MM.dd.N] - yyyy-MM-dd` section, and add the matching link
+   reference at the bottom of the file.
+2. Run `scripts/build_windows.ps1` then `scripts/build_installer.ps1` — these
+   stamp `src/hwp2pdf/version.py` to match the date / build number.
+3. Commit `CHANGELOG.md` + `src/hwp2pdf/version.py` together, then push.
+4. `gh release create vYYYY.MM.DD.N --notes-file -` (or paste the same
+   section body) and attach `release/hwp2pdf-setup-*.exe`,
+   `release/hwp2pdf-windows-*.zip`, `dist/hwp2pdf-*.exe`,
+   `dist/hwp2pdf-cli-*.exe`.
+
 ## Contributors
 
 - Namun Cho: creator and maintainer
