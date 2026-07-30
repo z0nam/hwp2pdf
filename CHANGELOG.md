@@ -8,6 +8,12 @@
 
 (다음 release에 포함될 변경분이 누적되는 곳)
 
+## [2026.07.30.1] - 2026-07-30
+
+### Changed
+- 안전한 로컬 임시 폴더 변환 옵션의 설명을
+  `구글 드라이브/네트워크 드라이브 사용시 권장`으로 명확히 수정했습니다.
+
 ## [2026.06.25.6] - 2026-06-25
 
 ### Added
@@ -53,6 +59,7 @@
 
 ---
 
-[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.06.25.6...HEAD
+[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.07.30.1...HEAD
+[2026.07.30.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.07.30.1
 [2026.06.25.6]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.06.25.6
 [2026.06.25.5]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.06.25.5
