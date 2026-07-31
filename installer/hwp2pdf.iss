@@ -50,3 +50,10 @@ Name: "{autodesktop}\hwp2pdf"; Filename: "{app}\hwp2pdf.exe"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\hwp2pdf.exe"; Description: "{cm:LaunchProgram,hwp2pdf}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\hwp2pdf.exe"; Flags: nowait runasoriginaluser skipifnotsilent; Check: IsAutoUpdate
+
+[Code]
+function IsAutoUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:HWP2PDFAUTOUPDATE|0}') = '1';
+end;

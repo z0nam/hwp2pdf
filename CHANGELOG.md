@@ -8,6 +8,16 @@
 
 (다음 release에 포함될 변경분이 누적되는 곳)
 
+## [2026.07.31.3] - 2026-07-31
+
+### Fixed
+- 자동 업데이트가 숨김 PowerShell 보조 스크립트에서 멈추며 앱이 재실행되지 않는
+  문제를 수정했습니다. 보조 프로세스의 시작 여부와 부모 앱 종료를 확인한 뒤
+  설치를 실행하고, 실패 로그를 보존하며 기존 앱을 다시 실행합니다. 설치가
+  완료되면 Inno Setup이 새 버전을 원래 사용자 권한으로 실행합니다.
+- `2026.07.30.1` 이하 설치본은 기존 자동 업데이트 실행부의 문제 때문에
+  이 버전의 설치파일을 한 번 직접 실행해야 할 수 있습니다.
+
 ## [2026.07.30.1] - 2026-07-30
 
 ### Changed
@@ -59,7 +69,8 @@
 
 ---
 
-[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.07.30.1...HEAD
+[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.07.31.3...HEAD
+[2026.07.31.3]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.07.31.3
 [2026.07.30.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.07.30.1
 [2026.06.25.6]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.06.25.6
 [2026.06.25.5]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.06.25.5

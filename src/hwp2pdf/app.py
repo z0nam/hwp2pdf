@@ -1504,41 +1504,94 @@ class ConverterApp:
 
     def _launch_installer_and_signal_exit(self, setup_path: Path):
         our_exe = sys.executable
+        parent_pid = os.getpid()
         ps_path = UPDATE_DOWNLOAD_DIR / "hwp2pdf-update.ps1"
+        ready_path = UPDATE_DOWNLOAD_DIR / "hwp2pdf-update.ready"
+        helper_log = UPDATE_DOWNLOAD_DIR / "hwp2pdf-update.log"
+        install_log = UPDATE_DOWNLOAD_DIR / "hwp2pdf-install.log"
+        try:
+            ready_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
         script = textwrap.dedent(f"""
-            $ErrorActionPreference = 'Continue'
-            Start-Sleep -Seconds 2
+            $ErrorActionPreference = 'Stop'
+            $helperLog = {self._ps_quote(helper_log)}
+            function Write-UpdateLog([string]$Message) {{
+                Add-Content -LiteralPath $helperLog -Value "$(Get-Date -Format o) $Message" -Encoding UTF8
+            }}
+
             try {{
-                $p = Start-Process -FilePath {self._ps_quote(setup_path)} `
-                    -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CLOSEAPPLICATIONS','/RESTARTAPPLICATIONS' `
-                    -Verb RunAs -PassThru -Wait
-                if ($p.ExitCode -eq 0) {{
-                    Start-Sleep -Seconds 2
-                    if (Test-Path -LiteralPath {self._ps_quote(our_exe)}) {{
-                        Start-Process -FilePath {self._ps_quote(our_exe)}
+                Set-Content -LiteralPath {self._ps_quote(ready_path)} -Value 'ready' -Encoding ASCII
+                Write-UpdateLog 'Helper started; waiting for the app to exit.'
+                for ($i = 0; $i -lt 120; $i++) {{
+                    if (-not (Get-Process -Id {parent_pid} -ErrorAction SilentlyContinue)) {{
+                        break
                     }}
+                    Start-Sleep -Milliseconds 250
                 }}
-            }} catch {{}}
-            Remove-Item -LiteralPath {self._ps_quote(ps_path)} -Force -ErrorAction SilentlyContinue
+                if (Get-Process -Id {parent_pid} -ErrorAction SilentlyContinue) {{
+                    throw 'The app did not exit within 30 seconds.'
+                }}
+                Start-Sleep -Seconds 1
+                Write-UpdateLog 'Launching installer.'
+                $p = Start-Process -FilePath {self._ps_quote(setup_path)} `
+                    -ArgumentList '/SP-','/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CLOSEAPPLICATIONS','/HWP2PDFAUTOUPDATE=1',{self._ps_quote(f'/LOG="{install_log}"')} `
+                    -Verb RunAs -PassThru
+                $p.WaitForExit()
+                Write-UpdateLog "Installer exit code: $($p.ExitCode)"
+                if ($p.ExitCode -ne 0) {{
+                    throw "Installer failed with exit code $($p.ExitCode)."
+                }}
+                Remove-Item -LiteralPath {self._ps_quote(ready_path)} -Force -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath {self._ps_quote(ps_path)} -Force -ErrorAction SilentlyContinue
+            }}
+            catch {{
+                Write-UpdateLog "Update failed: $($_.Exception.Message)"
+                Remove-Item -LiteralPath {self._ps_quote(ready_path)} -Force -ErrorAction SilentlyContinue
+                if (Test-Path -LiteralPath {self._ps_quote(our_exe)}) {{
+                    Start-Process -FilePath {self._ps_quote(our_exe)}
+                }}
+            }}
         """).strip()
         ps_path.write_text(script, encoding="utf-8-sig")
-        DETACHED_PROCESS = 0x00000008
+
         CREATE_NEW_PROCESS_GROUP = 0x00000200
-        subprocess.Popen(
+        CREATE_NO_WINDOW = 0x08000000
+        powershell_path = (
+            Path(os.environ.get("SystemRoot") or r"C:\Windows")
+            / "System32"
+            / "WindowsPowerShell"
+            / "v1.0"
+            / "powershell.exe"
+        )
+        helper = subprocess.Popen(
             [
-                "powershell",
+                str(powershell_path),
                 "-NoProfile",
-                "-WindowStyle",
-                "Hidden",
+                "-NonInteractive",
                 "-ExecutionPolicy",
                 "Bypass",
                 "-File",
                 str(ps_path),
             ],
-            creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW,
             close_fds=True,
         )
-        self.log_queue.put(("update_relaunch", None))
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if ready_path.exists():
+                self.log_queue.put(("update_relaunch", None))
+                return
+            if helper.poll() is not None:
+                raise RuntimeError(f"Updater helper exited early. See {helper_log}")
+            time.sleep(0.05)
+        helper.terminate()
+        raise RuntimeError(f"Updater helper did not start. See {helper_log}")
 
     @staticmethod
     def _ps_quote(value) -> str:

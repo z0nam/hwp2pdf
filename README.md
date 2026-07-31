@@ -113,6 +113,23 @@ Alternative:
 2. Right-click the zip file and choose **Extract All...**.
 3. Run the extracted `hwp2pdf.exe`.
 
+### 자동 업데이트 / Automatic Updates
+
+설치본은 하루에 한 번 새 GitHub Release를 확인하고 새 버전이 있으면 자동
+업데이트 버튼을 표시합니다. `2026.07.30.1` 이하에서 업데이트 후 창만 사라지는
+경우에는 최신 `hwp2pdf-setup-YYYY.MM.DD.N.exe`를 한 번 직접 실행하세요.
+`2026.07.31.3`부터는 보조 프로세스가 앱 종료를 확인한 뒤 설치하고 새 버전을
+다시 실행합니다. 문제 확인용 로그는 `%LOCALAPPDATA%\hwp2pdf\updates\`에
+저장됩니다.
+
+The installed build checks GitHub Releases once per day and shows an automatic
+update button when a newer version is available. If version `2026.07.30.1` or
+earlier closes without reopening after an update, run the latest
+`hwp2pdf-setup-YYYY.MM.DD.N.exe` once manually. Starting with `2026.07.31.3`,
+the update helper waits for the app to exit before installing and relaunching
+the new version. Diagnostic logs are stored in
+`%LOCALAPPDATA%\hwp2pdf\updates\`.
+
 ### 보안 경고 / Security Warning
 
 현재 배포 파일은 코드 서명 인증서로 서명되지 않았습니다. 따라서 Windows SmartScreen 또는 브라우저 보안 경고가 표시될 수 있습니다. 이 경고는 설치 파일을 사용하더라도 코드 서명 전에는 완전히 사라지지 않습니다. 출처를 신뢰할 수 있을 때만 실행하세요.
