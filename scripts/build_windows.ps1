@@ -99,7 +99,11 @@ $ZipPath = Join-Path $ReleaseDir "hwp2pdf-windows-$Version.zip"
 
 Move-Item -LiteralPath $DistExe -Destination $VersionedExe -Force
 Move-Item -LiteralPath $DistCliExe -Destination $VersionedCliExe -Force
-Compress-WithRetry -Path @($VersionedExe, $VersionedCliExe) -DestinationPath $ZipPath
+Compress-WithRetry -Path @(
+    $VersionedExe,
+    $VersionedCliExe,
+    (Join-Path $Root "THIRD_PARTY_NOTICES.md")
+) -DestinationPath $ZipPath
 
 Write-Host "Version $Version"
 Write-Host "Built $VersionedExe"

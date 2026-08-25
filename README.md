@@ -138,15 +138,15 @@ The current release files are not signed with a code signing certificate. Window
 
 ## 변환 방법 / How To Convert
 
-1. 폴더 전체를 변환하려면 **Browse folder...**로 변환 대상 폴더를 선택합니다. 파일 하나만 변환하려면 **Pick file...**로 `.hwp` 또는 `.hwpx` 파일을 선택합니다.
+1. 폴더 전체를 변환하려면 **Browse folder...**로 변환 대상 폴더를 선택합니다. 파일 하나만 변환하려면 **Pick file...**로 `.hwp` 또는 `.hwpx` 파일을 선택합니다. Windows 탐색기에서 폴더나 HWP/HWPX 파일을 앱 창에 끌어다 놓아도 됩니다.
 2. **Output**에서 **PDF**, **DOCX** 중 하나 또는 둘 다 선택합니다.
-3. 폴더를 선택한 경우 하위 폴더 포함 여부를 선택합니다. 파일을 선택한 경우 **Include subfolders**는 비활성화되고 선택한 파일만 변환합니다.
+3. 폴더를 선택한 경우 하위 폴더 포함 여부를 선택합니다. 파일을 선택한 경우 **Include subfolders**는 비활성화되고 선택한 파일만 변환하며, 다시 폴더를 선택하면 이전 설정이 복원됩니다.
 4. 기존 출력 파일 덮어쓰기 여부, **Force one-page view before export** 옵션을 선택합니다.
 5. **Start conversion**을 누릅니다.
 
-1. To convert a whole folder, click **Browse folder...** and select the target folder. To convert one file, click **Pick file...** and select an `.hwp` or `.hwpx` file.
+1. To convert a whole folder, click **Browse folder...** and select the target folder. To convert one file, click **Pick file...** and select an `.hwp` or `.hwpx` file. You can also drag a folder or HWP/HWPX file from File Explorer onto the app window.
 2. Select **PDF**, **DOCX**, or both under **Output**.
-3. If a folder is selected, choose whether to include subfolders. If a file is selected, **Include subfolders** is disabled and only that file is converted.
+3. If a folder is selected, choose whether to include subfolders. If a file is selected, **Include subfolders** is disabled and only that file is converted; selecting a folder again restores the previous setting.
 4. Choose whether to overwrite existing output files and force one-page view before export.
 5. Click **Start conversion**.
 

@@ -32,6 +32,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "{#AppRoot}\dist\hwp2pdf-{#AppVersion}.exe"; DestDir: "{app}"; DestName: "hwp2pdf.exe"; Flags: ignoreversion
 Source: "{#AppRoot}\dist\hwp2pdf-cli-{#AppVersion}.exe"; DestDir: "{app}"; DestName: "hwp2pdf-cli.exe"; Flags: ignoreversion
+Source: "{#AppRoot}\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#AppRoot}\vendor\x86\FilePathCheckerModule.dll"; DestDir: "{app}\vendor\x86"; Flags: ignoreversion
 Source: "{#AppRoot}\vendor\x64\FilePathCheckerModule.dll"; DestDir: "{app}\vendor\x64"; Flags: ignoreversion
 

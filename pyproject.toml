@@ -14,6 +14,7 @@ authors = [
 ]
 dependencies = [
     "pywin32>=306; platform_system == 'Windows'",
+    "tkinterdnd2>=0.6.2",
 ]
 keywords = ["hwp", "hwpx", "pdf", "docx", "hancom", "converter"]
 classifiers = [

@@ -28,30 +28,32 @@ if (-not $IsWindows) {
     $Failed = $true
 }
 
-$PythonCmd = Get-Command python -ErrorAction SilentlyContinue
-Write-Check "python on PATH" ($null -ne $PythonCmd) $(if ($PythonCmd) { $PythonCmd.Source } else { "" })
+$VenvPython = Join-Path $Root ".venv\Scripts\python.exe"
+$PythonOnPath = Get-Command python -ErrorAction SilentlyContinue
+$PythonCmd = if (Test-Path $VenvPython) { $VenvPython } elseif ($PythonOnPath) { $PythonOnPath.Source } else { $null }
+Write-Check "Python interpreter" ($null -ne $PythonCmd) $(if ($PythonCmd) { $PythonCmd } else { "" })
 if (-not $PythonCmd) {
     $Failed = $true
 } else {
-    & python --version
+    & $PythonCmd --version
 }
 
 Push-Location $Root
 try {
-    $ImportResult = & python -c "import sys; sys.path.insert(0, 'src'); import hwp2pdf; print(hwp2pdf.__version__)"
+    $ImportResult = & $PythonCmd -c "import sys; sys.path.insert(0, 'src'); import hwp2pdf; print(hwp2pdf.__version__)"
     Write-Check "source package import" ($LASTEXITCODE -eq 0) $ImportResult
     if ($LASTEXITCODE -ne 0) {
         $Failed = $true
     }
 
-    $DocxResult = & python -c "import sys; sys.path.insert(0, 'src'); from hwp2pdf.app import output_extension; print(output_extension('DOCX'))"
+    $DocxResult = & $PythonCmd -c "import sys; sys.path.insert(0, 'src'); from hwp2pdf.app import output_extension; print(output_extension('DOCX'))"
     $DocxOk = $LASTEXITCODE -eq 0 -and $DocxResult -eq ".docx"
     Write-Check "DOCX output wiring" $DocxOk $DocxResult
     if (-not $DocxOk) {
         $Failed = $true
     }
 
-    & python -c "import win32com.client, pythoncom; print('pywin32 import ok')" 2>$null
+    & $PythonCmd -c "import win32com.client, pythoncom; print('pywin32 import ok')" 2>$null
     $Pywin32Ok = $LASTEXITCODE -eq 0
     Write-Check "pywin32 import" $Pywin32Ok
     if (-not $Pywin32Ok) {
@@ -60,7 +62,7 @@ try {
     }
 
     if ($Pywin32Ok) {
-        & python -c "import pythoncom, win32com.client; pythoncom.CoInitialize(); hwp = win32com.client.Dispatch('HWPFrame.HwpObject'); print('HWPFrame.HwpObject dispatch ok'); hwp.Quit(); pythoncom.CoUninitialize()" 2>$null
+        & $PythonCmd -c "import pythoncom, win32com.client; pythoncom.CoInitialize(); hwp = win32com.client.Dispatch('HWPFrame.HwpObject'); print('HWPFrame.HwpObject dispatch ok'); hwp.Quit(); pythoncom.CoUninitialize()" 2>$null
         $ComOk = $LASTEXITCODE -eq 0
         Write-Check "Hancom HWP COM dispatch" $ComOk
         if (-not $ComOk) {

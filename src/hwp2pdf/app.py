@@ -15,6 +15,7 @@ import webbrowser
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+from tkinterdnd2 import DND_FILES, TkinterDnD
 
 from hwp2pdf.version import __version__
 
@@ -62,6 +63,9 @@ LANGUAGE_CODES = {label: code for code, label in LANGUAGE_LABELS.items()}
 TEXT = {
     "ko": {
         "target_label": "대상 폴더 또는 파일",
+        "drop_hint": "탐색기에서 HWP/HWPX 파일 또는 폴더를 이 창에 끌어다 놓을 수 있습니다.",
+        "invalid_drop": "HWP/HWPX 파일 또는 폴더를 끌어다 놓으세요.",
+        "multiple_drop": "한 번에 하나만 대상으로 지정할 수 있어 첫 번째 유효 항목을 선택했습니다.",
         "file_count_estimate": "변환 예상 파일: 총 {count}개",
         "file_count_unavailable": "변환 예상 파일 수를 확인할 수 없습니다.",
         "browse_folder": "폴더 선택...",
@@ -188,6 +192,9 @@ TEXT = {
     },
     "en": {
         "target_label": "Root folder or file",
+        "drop_hint": "Drag an HWP/HWPX file or folder from File Explorer onto this window.",
+        "invalid_drop": "Drop an HWP/HWPX file or folder.",
+        "multiple_drop": "Only one target is supported, so the first valid item was selected.",
         "file_count_estimate": "Estimated files to convert: {count}",
         "file_count_unavailable": "Could not estimate the number of files to convert.",
         "browse_folder": "Browse folder...",
@@ -1053,6 +1060,8 @@ class ConverterApp:
         self.folder_var = tk.StringVar()
         self.overwrite_var = tk.BooleanVar(value=True)
         self.recursive_var = tk.BooleanVar(value=True)
+        self.folder_recursive_preference = True
+        self._updating_recursive_for_target = False
         self.use_safe_copy_var = tk.BooleanVar(value=True)
         self.force_one_page_var = tk.BooleanVar(value=True)
         self.output_pdf_var = tk.BooleanVar(value=True)
@@ -1073,8 +1082,21 @@ class ConverterApp:
         self.ui = {}
 
         self._build_ui()
+        try:
+            TkinterDnD.require(self.root)
+            drop_widget = (
+                self.root
+                if hasattr(self.root, "drop_target_register")
+                else self.ui["path_entry"]
+            )
+            drop_widget.drop_target_register(DND_FILES)
+            drop_widget.dnd_bind("<<Drop>>", self._on_drop_event)
+            self.drop_target_enabled = True
+        except Exception:
+            self.drop_target_enabled = False
+            self.ui["drop_hint_label"].grid_remove()
         self.folder_var.trace_add("write", self._on_target_path_changed)
-        self.recursive_var.trace_add("write", self._on_target_path_changed)
+        self.recursive_var.trace_add("write", self._on_recursive_option_changed)
         self._apply_cached_update_state()
         self._poll_log_queue()
         self.root.after(1000, self.check_for_updates_if_due)
@@ -1113,16 +1135,19 @@ class ConverterApp:
         path_row.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         path_row.columnconfigure(0, weight=1)
 
-        ttk.Entry(path_row, textvariable=self.folder_var).grid(row=0, column=0, sticky="ew", padx=(0, 8))
+        self.ui["path_entry"] = ttk.Entry(path_row, textvariable=self.folder_var)
+        self.ui["path_entry"].grid(row=0, column=0, sticky="ew", padx=(0, 8))
         self.ui["browse_btn"] = ttk.Button(path_row, command=self.browse_folder)
         self.ui["browse_btn"].grid(row=0, column=1, sticky="e", padx=(0, 8))
         self.ui["pick_btn"] = ttk.Button(path_row, command=self.pick_file_folder)
         self.ui["pick_btn"].grid(row=0, column=2, sticky="e")
         self.ui["file_count_label"] = ttk.Label(top, textvariable=self.file_count_var)
         self.ui["file_count_label"].grid(row=2, column=0, sticky="w", pady=(4, 0))
+        self.ui["drop_hint_label"] = ttk.Label(top)
+        self.ui["drop_hint_label"].grid(row=3, column=0, sticky="w", pady=(4, 0))
 
         update_row = ttk.Frame(top)
-        update_row.grid(row=3, column=0, sticky="w", pady=(4, 0))
+        update_row.grid(row=4, column=0, sticky="w", pady=(4, 0))
         self.ui["update_status_label"] = ttk.Label(update_row, textvariable=self.update_status_var)
         self.ui["update_status_label"].pack(side="left")
         self.auto_update_btn = ttk.Button(update_row, command=self.start_auto_update)
@@ -1208,6 +1233,7 @@ class ConverterApp:
     def _apply_language(self):
         self.root.title(APP_TITLE)
         self.ui["target_label"].configure(text=self.tr("target_label"))
+        self.ui["drop_hint_label"].configure(text=self.tr("drop_hint"))
         self.ui["language_label"].configure(text=self.tr("language"))
         self.ui["browse_btn"].configure(text=self.tr("browse_folder"))
         self.ui["pick_btn"].configure(text=self.tr("pick_file"))
@@ -1262,18 +1288,61 @@ class ConverterApp:
         if selected_file:
             self.folder_var.set(selected_file)
 
+    def _handle_dropped_paths(self, paths):
+        valid_targets = []
+        for raw_path in paths:
+            path = Path(raw_path)
+            if path.is_dir() or (
+                path.is_file() and path.suffix.lower() in enabled_extensions()
+            ):
+                valid_targets.append(path)
+
+        if not valid_targets:
+            messagebox.showwarning(APP_TITLE, self.tr("invalid_drop"))
+            return
+
+        self.folder_var.set(str(valid_targets[0]))
+        if len(paths) > 1:
+            messagebox.showinfo(APP_TITLE, self.tr("multiple_drop"))
+
+    def _on_drop_event(self, event):
+        paths = self.root.tk.splitlist(event.data)
+        self._handle_dropped_paths(paths)
+        return event.action
+
     def _on_target_path_changed(self, *_args):
         if self.recursive_check is None:
             return
 
         target = self.folder_var.get().strip()
         if target and os.path.isfile(target):
-            if self.recursive_var.get():
-                self.recursive_var.set(False)
+            self.folder_recursive_preference = self.recursive_var.get()
+            self._set_recursive_for_target(False)
             self.recursive_check.state(["disabled"])
         else:
             self.recursive_check.state(["!disabled"])
+            if target and os.path.isdir(target):
+                self._set_recursive_for_target(self.folder_recursive_preference)
         self._update_file_count_estimate()
+
+    def _on_recursive_option_changed(self, *_args):
+        if self._updating_recursive_for_target:
+            return
+
+        target = self.folder_var.get().strip()
+        if target and os.path.isdir(target):
+            self.folder_recursive_preference = self.recursive_var.get()
+        self._update_file_count_estimate()
+
+    def _set_recursive_for_target(self, value: bool):
+        if self.recursive_var.get() == value:
+            return
+
+        self._updating_recursive_for_target = True
+        try:
+            self.recursive_var.set(value)
+        finally:
+            self._updating_recursive_for_target = False
 
     def _update_file_count_estimate(self):
         if not hasattr(self, "file_count_var"):
@@ -2125,7 +2194,10 @@ class ConverterApp:
 
 
 def main():
-    root = tk.Tk()
+    try:
+        root = TkinterDnD.Tk()
+    except RuntimeError:
+        root = tk.Tk()
     style = ttk.Style(root)
     try:
         style.theme_use("vista")

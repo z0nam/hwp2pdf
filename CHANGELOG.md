@@ -8,6 +8,18 @@
 
 (다음 release에 포함될 변경분이 누적되는 곳)
 
+## [2026.08.25.1] - 2026-08-25
+
+### Added
+- Windows 탐색기에서 HWP/HWPX 파일이나 폴더를 앱 창에 끌어다 놓아 변환 대상으로
+  지정하는 기능을 추가했습니다.
+
+### Changed
+- 파일을 대상으로 지정하면 `하위 폴더 포함`을 비활성화하고, 다시 폴더를 지정하면
+  이전 폴더 모드의 선택값을 복원합니다.
+- 포터블 ZIP과 설치본에 드래그앤드롭 런타임 및 제3자 라이선스 고지를 포함하고,
+  Windows 사전 점검이 프로젝트 가상환경을 우선 사용하도록 개선했습니다.
+
 ## [2026.07.31.3] - 2026-07-31
 
 ### Fixed
@@ -69,7 +81,8 @@
 
 ---
 
-[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.07.31.3...HEAD
+[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.08.25.1...HEAD
+[2026.08.25.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.08.25.1
 [2026.07.31.3]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.07.31.3
 [2026.07.30.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.07.30.1
 [2026.06.25.6]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.06.25.6
