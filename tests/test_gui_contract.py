@@ -93,3 +93,95 @@ def test_connection_test_without_an_address_reports_instead_of_hanging(app):
     app.test_server_connection()
     assert app.server_test_running is False
     assert app.server_status_var.get()
+
+
+# -- multi-file selection alongside the server panel ---------------------
+def test_file_selection_shows_the_list_and_counts(app, tmp_path):
+    files = []
+    for name in ("a.hwp", "b.hwpx"):
+        path = tmp_path / name
+        path.write_bytes(b"x")
+        files.append(path)
+    (tmp_path / "c.txt").write_bytes(b"x")
+
+    assert app.ui["file_list_frame"].winfo_manager() != "grid"
+    app._set_file_targets(files + [tmp_path / "c.txt"], append=False)
+
+    assert [str(p) for p in app.selected_files] == [str(p) for p in files]
+    assert app.file_listbox.size() == 2
+    assert app.ui["file_list_frame"].winfo_manager() == "grid"
+    assert "2" in app.file_count_var.get()
+
+
+def test_dropping_more_files_appends_instead_of_replacing(app, tmp_path):
+    first = tmp_path / "a.hwp"
+    second = tmp_path / "b.hwp"
+    first.write_bytes(b"x")
+    second.write_bytes(b"x")
+
+    app._handle_dropped_paths([str(first)])
+    app._handle_dropped_paths([str(second)])
+
+    assert [p.name for p in app.selected_files] == ["a.hwp", "b.hwp"]
+    # The same file twice must not duplicate.
+    app._handle_dropped_paths([str(second)])
+    assert len(app.selected_files) == 2
+
+
+def test_dropping_a_folder_replaces_the_file_selection(app, tmp_path):
+    picked = tmp_path / "a.hwp"
+    picked.write_bytes(b"x")
+    folder = tmp_path / "docs"
+    folder.mkdir()
+
+    app._handle_dropped_paths([str(picked)])
+    assert app.selected_files
+    app._handle_dropped_paths([str(folder)])
+
+    assert app.selected_files == []
+    assert app.folder_var.get() == str(folder)
+
+
+def test_clear_and_remove_selected(app, tmp_path):
+    for name in ("a.hwp", "b.hwp", "c.hwp"):
+        (tmp_path / name).write_bytes(b"x")
+    app._set_file_targets([tmp_path / n for n in ("a.hwp", "b.hwp", "c.hwp")], append=False)
+
+    app.file_listbox.selection_set(1)
+    app.remove_selected_files()
+    assert [p.name for p in app.selected_files] == ["a.hwp", "c.hwp"]
+
+    app.clear_selected_files()
+    assert app.selected_files == []
+    assert app.folder_var.get() == ""
+    assert app.ui["file_list_frame"].winfo_manager() != "grid"
+
+
+def test_completion_no_longer_opens_a_blocking_dialog(app, monkeypatch):
+    """The done handler writes to the log instead of a modal messagebox."""
+    import tkinter.messagebox as messagebox
+
+    opened = []
+    monkeypatch.setattr(messagebox, "showinfo", lambda *a, **k: opened.append(a))
+
+    app.is_running = True
+    app.log_queue.put(("done", (2, 1, 0, "/tmp/hwp2pdf_log.csv", False)))
+    app._poll_log_queue()
+
+    assert opened == []
+    log = app.log_text.get("1.0", "end")
+    assert "1" in log and "2" in log
+    assert app.is_running is False
+
+
+def test_multi_file_selection_and_server_panel_coexist(app, tmp_path):
+    """The merge must not have either feature clobber the other."""
+    picked = tmp_path / "a.hwp"
+    picked.write_bytes(b"x")
+    app._set_file_targets([picked], append=False)
+    app.server_url_var.set("http://host:8765")
+
+    assert app.selected_files
+    assert app.backend_settings()["url"] == "http://host:8765"
+    if not IS_WINDOWS:
+        assert app.ui["server_frame"].winfo_manager() == "pack"

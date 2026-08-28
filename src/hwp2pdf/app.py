@@ -393,6 +393,9 @@ class ConverterApp:
         self.recursive_var = tk.BooleanVar(value=saved["recursive"])
         self.folder_recursive_preference = saved["recursive"]
         self._updating_recursive_for_target = False
+        self._updating_file_targets = False
+        self._file_mode_active = False
+        self.selected_files = []
         self.use_safe_copy_var = tk.BooleanVar(value=saved["safe_temp"])
         self.force_one_page_var = tk.BooleanVar(value=saved["force_one_page"])
         self.output_pdf_var = tk.BooleanVar(value="PDF" in saved["formats"])
@@ -427,14 +430,9 @@ class ConverterApp:
         self._build_ui()
         try:
             TkinterDnD.require(self.root)
-            drop_widget = (
-                self.root
-                if hasattr(self.root, "drop_target_register")
-                else self.ui["path_entry"]
-            )
-            drop_widget.drop_target_register(DND_FILES)
-            drop_widget.dnd_bind("<<Drop>>", self._on_drop_event)
-            self.drop_target_enabled = True
+            self.drop_target_enabled = self._register_drop_targets() > 0
+            if not self.drop_target_enabled:
+                self.ui["drop_hint_label"].grid_remove()
         except Exception:
             self.drop_target_enabled = False
             self.ui["drop_hint_label"].grid_remove()
@@ -452,6 +450,22 @@ class ConverterApp:
         self._apply_cached_update_state()
         self._poll_log_queue()
         self.root.after(1000, self.check_for_updates_if_due)
+
+    def _register_drop_targets(self):
+        registered = 0
+        pending = [self.root]
+        while pending:
+            widget = pending.pop()
+            pending.extend(widget.winfo_children())
+            if not hasattr(widget, "drop_target_register"):
+                continue
+            try:
+                widget.drop_target_register(DND_FILES)
+                widget.dnd_bind("<<Drop>>", self._on_drop_event)
+                registered += 1
+            except Exception:
+                continue
+        return registered
 
     def lang(self):
         return LANGUAGE_CODES.get(self.language_var.get(), "ko")
@@ -493,13 +507,48 @@ class ConverterApp:
         self.ui["browse_btn"].grid(row=0, column=1, sticky="e", padx=(0, 8))
         self.ui["pick_btn"] = ttk.Button(path_row, command=self.pick_file_folder)
         self.ui["pick_btn"].grid(row=0, column=2, sticky="e")
+        self.ui["file_list_frame"] = ttk.LabelFrame(top, padding=(8, 6))
+        self.ui["file_list_frame"].grid(row=2, column=0, sticky="ew", pady=(6, 0))
+        self.ui["file_list_frame"].columnconfigure(0, weight=1)
+        file_list_area = ttk.Frame(self.ui["file_list_frame"])
+        file_list_area.grid(row=0, column=0, sticky="nsew")
+        file_list_area.columnconfigure(0, weight=1)
+        self.file_listbox = tk.Listbox(
+            file_list_area,
+            height=4,
+            selectmode="extended",
+            exportselection=False,
+            activestyle="none",
+        )
+        self.file_listbox.grid(row=0, column=0, sticky="nsew")
+        file_list_scroll = ttk.Scrollbar(
+            file_list_area,
+            orient="vertical",
+            command=self.file_listbox.yview,
+        )
+        file_list_scroll.grid(row=0, column=1, sticky="ns")
+        self.file_listbox.configure(yscrollcommand=file_list_scroll.set)
+        file_list_actions = ttk.Frame(self.ui["file_list_frame"])
+        file_list_actions.grid(row=0, column=1, sticky="n", padx=(8, 0))
+        self.ui["remove_files_btn"] = ttk.Button(
+            file_list_actions,
+            command=self.remove_selected_files,
+        )
+        self.ui["remove_files_btn"].pack(fill="x")
+        self.ui["clear_files_btn"] = ttk.Button(
+            file_list_actions,
+            command=self.clear_selected_files,
+        )
+        self.ui["clear_files_btn"].pack(fill="x", pady=(6, 0))
+        self.ui["file_list_frame"].grid_remove()
+
         self.ui["file_count_label"] = ttk.Label(top, textvariable=self.file_count_var)
-        self.ui["file_count_label"].grid(row=2, column=0, sticky="w", pady=(4, 0))
+        self.ui["file_count_label"].grid(row=3, column=0, sticky="w", pady=(4, 0))
         self.ui["drop_hint_label"] = ttk.Label(top)
-        self.ui["drop_hint_label"].grid(row=3, column=0, sticky="w", pady=(4, 0))
+        self.ui["drop_hint_label"].grid(row=4, column=0, sticky="w", pady=(4, 0))
 
         update_row = ttk.Frame(top)
-        update_row.grid(row=4, column=0, sticky="w", pady=(4, 0))
+        update_row.grid(row=5, column=0, sticky="w", pady=(4, 0))
         self.ui["update_status_label"] = ttk.Label(update_row, textvariable=self.update_status_var)
         self.ui["update_status_label"].pack(side="left")
         self.auto_update_btn = ttk.Button(update_row, command=self.start_auto_update)
@@ -641,6 +690,8 @@ class ConverterApp:
         self.ui["language_label"].configure(text=self.tr("language"))
         self.ui["browse_btn"].configure(text=self.tr("browse_folder"))
         self.ui["pick_btn"].configure(text=self.tr("pick_file"))
+        self.ui["remove_files_btn"].configure(text=self.tr("remove_selected"))
+        self.ui["clear_files_btn"].configure(text=self.tr("clear_all"))
         self.ui["opts"].configure(text=self.tr("options"))
         self.recursive_check.configure(text=self.tr("include_subfolders"))
         self.ui["overwrite_check"].configure(text=self.tr("overwrite"))
@@ -667,6 +718,7 @@ class ConverterApp:
         self._apply_backend_mode()
         if not self.is_running:
             self.progress_label_var.set(self.tr("ready"))
+        self._refresh_file_target_list()
         self._apply_cached_update_state()
         self._update_file_count_estimate()
 
@@ -681,7 +733,7 @@ class ConverterApp:
             parent=self.root, title=self.tr("select_folder_title"), initialdir=initial_dir
         )
         if folder:
-            self.folder_var.set(folder)
+            self._set_folder_target(Path(folder))
 
     def pick_file_folder(self):
         initial_dir = self.folder_var.get().strip()
@@ -690,7 +742,7 @@ class ConverterApp:
         if not initial_dir or not os.path.isdir(initial_dir):
             initial_dir = str(Path.home())
 
-        selected_file = filedialog.askopenfilename(
+        selected_files = filedialog.askopenfilenames(
             parent=self.root,
             title=self.tr("select_file_title"),
             initialdir=initial_dir,
@@ -699,25 +751,124 @@ class ConverterApp:
                 (self.tr("all_files"), "*.*"),
             ],
         )
-        if selected_file:
-            self.folder_var.set(selected_file)
+        if selected_files:
+            self._set_file_targets((Path(path) for path in selected_files), append=False)
 
-    def _handle_dropped_paths(self, paths):
-        valid_targets = []
-        for raw_path in paths:
-            path = Path(raw_path)
-            if path.is_dir() or (
-                path.is_file() and path.suffix.lower() in enabled_extensions()
-            ):
-                valid_targets.append(path)
+    @staticmethod
+    def _target_key(path: Path):
+        try:
+            resolved = path.resolve()
+        except OSError:
+            resolved = path.absolute()
+        return os.path.normcase(str(resolved))
 
-        if not valid_targets:
-            messagebox.showwarning(APP_TITLE, self.tr("invalid_drop"))
+    def _set_folder_target(self, folder: Path):
+        self.selected_files = []
+        self._refresh_file_target_list()
+        self._updating_file_targets = True
+        try:
+            self.folder_var.set(str(folder))
+        finally:
+            self._updating_file_targets = False
+
+    def _set_file_targets(self, paths, append: bool):
+        allowed_extensions = enabled_extensions()
+        candidates = list(self.selected_files) if append else []
+        seen = {self._target_key(path) for path in candidates}
+
+        for path in paths:
+            path = Path(path)
+            if not path.is_file() or path.suffix.lower() not in allowed_extensions:
+                continue
+            key = self._target_key(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            candidates.append(path)
+
+        if not candidates:
+            return False
+
+        self.selected_files = candidates
+        self._updating_file_targets = True
+        try:
+            self.folder_var.set(str(self.selected_files[0]))
+        finally:
+            self._updating_file_targets = False
+        self._refresh_file_target_list()
+        self._update_file_count_estimate()
+        return True
+
+    def _refresh_file_target_list(self):
+        if not hasattr(self, "file_listbox"):
             return
 
-        self.folder_var.set(str(valid_targets[0]))
-        if len(paths) > 1:
-            messagebox.showinfo(APP_TITLE, self.tr("multiple_drop"))
+        self.file_listbox.delete(0, "end")
+        for path in self.selected_files:
+            self.file_listbox.insert("end", str(path))
+
+        count = len(self.selected_files)
+        self.ui["file_list_frame"].configure(
+            text=self.tr("selected_files", count=count)
+        )
+        if count:
+            self.ui["file_list_frame"].grid()
+        else:
+            self.ui["file_list_frame"].grid_remove()
+
+    def remove_selected_files(self):
+        selected_indices = set(self.file_listbox.curselection())
+        if not selected_indices:
+            return
+        remaining = [
+            path
+            for index, path in enumerate(self.selected_files)
+            if index not in selected_indices
+        ]
+        self.selected_files = remaining
+        self._updating_file_targets = True
+        try:
+            self.folder_var.set(str(remaining[0]) if remaining else "")
+        finally:
+            self._updating_file_targets = False
+        self._refresh_file_target_list()
+        self._update_file_count_estimate()
+
+    def clear_selected_files(self):
+        if not self.selected_files:
+            return
+        self.selected_files = []
+        self._updating_file_targets = True
+        try:
+            self.folder_var.set("")
+        finally:
+            self._updating_file_targets = False
+        self._refresh_file_target_list()
+        self._update_file_count_estimate()
+
+    def _handle_dropped_paths(self, paths):
+        valid_files = []
+        valid_folders = []
+        for raw_path in paths:
+            path = Path(raw_path)
+            if path.is_dir():
+                valid_folders.append(path)
+            elif path.is_file() and path.suffix.lower() in enabled_extensions():
+                valid_files.append(path)
+
+        if valid_files:
+            self._set_file_targets(
+                valid_files,
+                append=bool(self.selected_files),
+            )
+            return
+
+        if valid_folders:
+            self._set_folder_target(valid_folders[0])
+            return
+
+        if not valid_files and not valid_folders:
+            messagebox.showwarning(APP_TITLE, self.tr("invalid_drop"))
 
     def _on_drop_event(self, event):
         paths = self.root.tk.splitlist(event.data)
@@ -728,12 +879,20 @@ class ConverterApp:
         if self.recursive_check is None:
             return
 
+        if not self._updating_file_targets and self.selected_files:
+            self.selected_files = []
+            self._refresh_file_target_list()
+
         target = self.folder_var.get().strip()
-        if target and os.path.isfile(target):
-            self.folder_recursive_preference = self.recursive_var.get()
+        file_mode = bool(self.selected_files) or (target and os.path.isfile(target))
+        if file_mode:
+            if not self._file_mode_active:
+                self.folder_recursive_preference = self.recursive_var.get()
+            self._file_mode_active = True
             self._set_recursive_for_target(False)
             self.recursive_check.state(["disabled"])
         else:
+            self._file_mode_active = False
             self.recursive_check.state(["!disabled"])
             if target and os.path.isdir(target):
                 self._set_recursive_for_target(self.folder_recursive_preference)
@@ -760,6 +919,12 @@ class ConverterApp:
 
     def _update_file_count_estimate(self):
         if not hasattr(self, "file_count_var"):
+            return
+
+        if self.selected_files:
+            self.file_count_var.set(
+                self.tr("file_count_estimate", count=len(self.selected_files))
+            )
             return
 
         target = self.folder_var.get().strip()
@@ -899,6 +1064,13 @@ class ConverterApp:
 
     def open_selected_folder(self):
         target = self.folder_var.get().strip()
+        if self.selected_files:
+            selection = self.file_listbox.curselection()
+            target = str(
+                self.selected_files[selection[0]]
+                if selection
+                else self.selected_files[0]
+            )
         if target and os.path.isfile(target):
             reveal_in_file_manager(str(Path(target).parent))
         elif target and os.path.isdir(target):
@@ -941,16 +1113,28 @@ class ConverterApp:
                     self.is_running = False
                     self.start_btn.config(state="normal")
                     self.stop_btn.config(state="disabled")
-                    if all_success:
-                        self.progress_label_var.set(self.tr("success_status"))
-                        messagebox.showinfo(APP_TITLE, self.tr("success_message"))
-                    else:
-                        self.progress_label_var.set(
-                            self.tr("done_status", success=success, failed=failed, skipped=skipped)
+                    self.progress_label_var.set(
+                        self.tr(
+                            "done_status",
+                            success=success,
+                            failed=failed,
+                            skipped=skipped,
                         )
-                        messagebox.showinfo(
-                            APP_TITLE,
-                            self.tr("done_message", success=success, failed=failed, skipped=skipped, log_csv=log_csv),
+                    )
+                    completion_level = "info" if all_success else "warning"
+                    self.append_log(
+                        self.tr(
+                            "done_log",
+                            success=success,
+                            failed=failed,
+                            skipped=skipped,
+                        ),
+                        completion_level,
+                    )
+                    if not all_success:
+                        self.append_log(
+                            self.tr("csv_log", path=log_csv),
+                            "warning",
                         )
 
                 elif kind == "server_test":
@@ -1292,14 +1476,25 @@ class ConverterApp:
             messagebox.showwarning(APP_TITLE, self.tr("already_running"))
             return
 
-        target = self.folder_var.get().strip()
-        if not target or not (os.path.isdir(target) or os.path.isfile(target)):
-            messagebox.showerror(APP_TITLE, self.tr("invalid_target"))
-            return
+        if self.selected_files:
+            if any(
+                not path.is_file()
+                or path.suffix.lower() not in enabled_extensions()
+                for path in self.selected_files
+            ):
+                messagebox.showerror(APP_TITLE, self.tr("invalid_target"))
+                return
+            conversion_target = tuple(str(path) for path in self.selected_files)
+        else:
+            target = self.folder_var.get().strip()
+            if not target or not (os.path.isdir(target) or os.path.isfile(target)):
+                messagebox.showerror(APP_TITLE, self.tr("invalid_target"))
+                return
 
-        if os.path.isfile(target) and Path(target).suffix.lower() not in enabled_extensions():
-            messagebox.showerror(APP_TITLE, self.tr("invalid_file"))
-            return
+            if os.path.isfile(target) and Path(target).suffix.lower() not in enabled_extensions():
+                messagebox.showerror(APP_TITLE, self.tr("invalid_file"))
+                return
+            conversion_target = target
 
         output_formats = self.selected_output_formats()
         if not output_formats:
@@ -1330,7 +1525,7 @@ class ConverterApp:
         self.worker = threading.Thread(
             target=self._run_conversion,
             args=(
-                target,
+                conversion_target,
                 self.recursive_var.get(),
                 self.overwrite_var.get(),
                 self.use_safe_copy_var.get(),
@@ -1355,7 +1550,7 @@ class ConverterApp:
 
     def _run_conversion(
         self,
-        target: str,
+        target: "str | tuple[str, ...]",
         recursive: bool,
         overwrite: bool,
         use_safe_copy: bool,

@@ -18,9 +18,22 @@ from hwp2pdf.i18n import translate
 LOG_CSV_NAME = "hwp2pdf_log.csv"
 
 
-def collect_files(target: str, recursive: bool):
-    root = Path(target)
+def collect_files(target, recursive: bool):
+    """Resolve a conversion target to a list of files.
+
+    ``target`` is either a single folder/file path, or an explicit sequence of
+    file paths (the GUI's multi-file selection). Handling both here keeps the
+    behaviour identical for the local and the remote backend.
+    """
     allowed_extensions = enabled_extensions()
+    if isinstance(target, (tuple, list)):
+        return [
+            Path(path)
+            for path in target
+            if Path(path).is_file() and Path(path).suffix.lower() in allowed_extensions
+        ]
+
+    root = Path(target)
     if root.is_file():
         return [root] if root.suffix.lower() in allowed_extensions else []
 
@@ -36,7 +49,7 @@ def run_batch(
     sink,
     backend,
     *,
-    target: str,
+    target,
     recursive: bool,
     overwrite: bool,
     use_safe_copy: bool,
@@ -60,7 +73,6 @@ def run_batch(
 
     try:
         sink.put(("log", translate(lang, "scanning")))
-        target_path = Path(target)
         files = file_collector(target, recursive)
         total_files = len(files)
         total_jobs = total_files * len(output_formats)
@@ -69,7 +81,12 @@ def run_batch(
             sink.put(("error", translate(lang, "no_files", extensions=extension_label)))
             return
 
-        log_root = target_path.parent if target_path.is_file() else target_path
+        if isinstance(target, (tuple, list)):
+            # An explicit file selection can span folders; log next to the first.
+            log_root = files[0].parent if files else Path.cwd()
+        else:
+            target_path = Path(target)
+            log_root = target_path.parent if target_path.is_file() else target_path
         log_csv = str(log_root / LOG_CSV_NAME)
         success = 0
         failed = 0

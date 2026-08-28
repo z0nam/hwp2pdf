@@ -423,3 +423,32 @@ def test_client_cancel_stops_the_remote_batch(tmp_path, server):
     converted = [name for name, _fmt in server.backends[0].converted]
     assert len(converted) == 1
     assert sink.done()[4] is False
+
+
+def test_explicit_file_selection_works_over_the_wire(tmp_path, server):
+    """The GUI's multi-file selection is shared code, so it must work remotely."""
+    one = tmp_path / "one"
+    two = tmp_path / "two"
+    one.mkdir()
+    two.mkdir()
+    make_files(one, "a.hwp")
+    make_files(two, "b.hwp")
+    make_files(one, "ignored.hwp")
+
+    sink = RecordingSink()
+    jobs.run_batch(
+        sink,
+        client(server),
+        target=(str(one / "a.hwp"), str(two / "b.hwp")),
+        recursive=False,
+        overwrite=True,
+        use_safe_copy=True,
+        force_one_page=True,
+        output_formats=("PDF",),
+        lang="ko",
+    )
+
+    assert (one / "a.pdf").read_bytes() == PDF_STUB
+    assert (two / "b.pdf").read_bytes() == PDF_STUB
+    assert not (one / "ignored.pdf").exists()
+    assert sink.done()[:3] == (2, 0, 0)

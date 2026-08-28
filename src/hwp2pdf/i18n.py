@@ -16,9 +16,11 @@ LANGUAGE_CODES = {label: code for code, label in LANGUAGE_LABELS.items()}
 TEXT = {
     "ko": {
         "target_label": "대상 폴더 또는 파일",
-        "drop_hint": "탐색기에서 HWP/HWPX 파일 또는 폴더를 이 창에 끌어다 놓을 수 있습니다.",
+        "drop_hint": "탐색기에서 HWP/HWPX 파일 여러 개 또는 폴더를 이 창에 끌어다 놓을 수 있습니다.",
         "invalid_drop": "HWP/HWPX 파일 또는 폴더를 끌어다 놓으세요.",
-        "multiple_drop": "한 번에 하나만 대상으로 지정할 수 있어 첫 번째 유효 항목을 선택했습니다.",
+        "selected_files": "선택한 파일 ({count}개)",
+        "remove_selected": "선택 제거",
+        "clear_all": "전체 비우기",
         "file_count_estimate": "변환 예상 파일: 총 {count}개",
         "file_count_unavailable": "변환 예상 파일 수를 확인할 수 없습니다.",
         "browse_folder": "폴더 선택...",
@@ -57,7 +59,7 @@ TEXT = {
         ),
         "language": "언어",
         "select_folder_title": "변환 대상 폴더 선택",
-        "select_file_title": "변환할 HWP/HWPX 파일 선택",
+        "select_file_title": "변환할 HWP/HWPX 파일 선택 (복수 선택 가능)",
         "all_files": "모든 파일",
         "invalid_target": "올바른 폴더 또는 HWP/HWPX 파일을 선택하세요.",
         "invalid_file": "HWP 또는 HWPX 파일을 선택하세요.",
@@ -146,6 +148,7 @@ TEXT = {
         "success_status": "성공",
         "success_message": "변환이 완료되었습니다.",
         "done_status": "완료. 성공: {success}, 실패: {failed}, 건너뜀: {skipped}",
+        "done_log": "변환 완료 — 성공: {success}, 실패: {failed}, 건너뜀: {skipped}",
         "done_message": (
             "변환이 끝났습니다.\n\n"
             "성공: {success}\n실패: {failed}\n건너뜀: {skipped}\n\n"
@@ -176,10 +179,12 @@ TEXT = {
         "hancom_dialog_blocked": "한컴 오류 대화상자가 표시되어 해당 파일을 실패 처리했습니다: {message}",
     },
     "en": {
-        "target_label": "Root folder or file",
-        "drop_hint": "Drag an HWP/HWPX file or folder from File Explorer onto this window.",
+        "target_label": "Target folder or files",
+        "drop_hint": "Drag multiple HWP/HWPX files or a folder from File Explorer onto this window.",
         "invalid_drop": "Drop an HWP/HWPX file or folder.",
-        "multiple_drop": "Only one target is supported, so the first valid item was selected.",
+        "selected_files": "Selected files ({count})",
+        "remove_selected": "Remove selected",
+        "clear_all": "Clear all",
         "file_count_estimate": "Estimated files to convert: {count}",
         "file_count_unavailable": "Could not estimate the number of files to convert.",
         "browse_folder": "Browse folder...",
@@ -218,7 +223,7 @@ TEXT = {
         ),
         "language": "Language",
         "select_folder_title": "Select target folder",
-        "select_file_title": "Select one HWP/HWPX file to convert",
+        "select_file_title": "Select HWP/HWPX files to convert (multiple allowed)",
         "all_files": "All files",
         "invalid_target": "Select a valid root folder or HWP/HWPX file.",
         "invalid_file": "Select an HWP or HWPX file.",
@@ -307,6 +312,7 @@ TEXT = {
         "success_status": "Success",
         "success_message": "Conversion succeeded.",
         "done_status": "Done. Success: {success}, Failed: {failed}, Skipped: {skipped}",
+        "done_log": "Conversion complete — Success: {success}, Failed: {failed}, Skipped: {skipped}",
         "done_message": (
             "Conversion finished.\n\n"
             "Success: {success}\nFailed: {failed}\nSkipped: {skipped}\n\n"

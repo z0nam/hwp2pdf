@@ -261,3 +261,63 @@ def test_csv_header_is_localized(tmp_path, lang):
         translate(lang, "output_header"),
         translate(lang, "message_header"),
     ]
+
+
+# -- explicit multi-file targets ----------------------------------------
+def test_collect_files_accepts_an_explicit_file_sequence(tmp_path):
+    make_files(tmp_path, "a.hwp", "b.hwpx", "c.txt")
+    (tmp_path / "gone.hwp").write_bytes(b"x")
+    (tmp_path / "gone.hwp").unlink()
+
+    picked = jobs.collect_files(
+        (
+            str(tmp_path / "a.hwp"),
+            str(tmp_path / "b.hwpx"),
+            str(tmp_path / "c.txt"),      # wrong extension
+            str(tmp_path / "gone.hwp"),   # no longer exists
+        ),
+        recursive=False,
+    )
+
+    assert [p.name for p in picked] == ["a.hwp", "b.hwpx"]
+
+
+def test_run_batch_converts_an_explicit_file_selection(tmp_path):
+    one = tmp_path / "one"
+    two = tmp_path / "two"
+    one.mkdir()
+    two.mkdir()
+    make_files(one, "a.hwp")
+    make_files(two, "b.hwp")
+    make_files(one, "ignored.hwp")
+
+    sink, backend = run(
+        tmp_path,
+        target=(str(one / "a.hwp"), str(two / "b.hwp")),
+        overwrite=False,
+    )
+
+    # Only the selected files convert, each next to its own source.
+    assert sorted(name for name, _fmt in backend.converted) == ["a.hwp", "b.hwp"]
+    assert (one / "a.pdf").exists()
+    assert (two / "b.pdf").exists()
+    assert not (one / "ignored.pdf").exists()
+    assert sink.done()[:3] == (1 + 1, 0, 0)
+
+
+def test_explicit_selection_logs_next_to_the_first_file(tmp_path):
+    one = tmp_path / "one"
+    one.mkdir()
+    make_files(one, "a.hwp")
+    backend = FakeBackend(fail_on={"a.hwp"})
+
+    sink, _ = run(tmp_path, backend=backend, target=(str(one / "a.hwp"),))
+
+    assert sink.done()[3] == str(one / jobs.LOG_CSV_NAME)
+    assert (one / jobs.LOG_CSV_NAME).exists()
+
+
+def test_empty_selection_reports_no_files(tmp_path):
+    sink, backend = run(tmp_path, target=(str(tmp_path / "nope.hwp"),))
+    assert sink.of_kind("error")
+    assert backend.sessions_opened == 0

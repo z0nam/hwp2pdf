@@ -9,6 +9,11 @@
     (see docs/known-issues.md).
 
     Run from an elevated PowerShell prompt.
+
+    NOTE: the server is a console program, so it shows a console window on the
+    desktop. Closing that window terminates the server (the task then reports
+    LastTaskResult 0xC000013A, STATUS_CONTROL_C_EXIT). Minimize it, do not close
+    it. Re-run the task with: Start-ScheduledTask -TaskName '<name>'
 #>
 param(
     [string]$Exe = "",
@@ -45,4 +50,7 @@ Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger `
 Write-Host "Registered scheduled task '$TaskName':"
 Write-Host "  $Exe serve --bind $Bind --port $Port"
 Write-Host "  runs at logon, only while $env:USERNAME is logged on."
+Write-Host ""
+Write-Host "A console window will appear on the desktop. Minimize it -- closing it"
+Write-Host "stops the server. Restart with: Start-ScheduledTask -TaskName '$TaskName'"
 Write-Host "Remove it with: Unregister-ScheduledTask -TaskName '$TaskName'"

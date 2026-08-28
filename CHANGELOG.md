@@ -6,35 +6,10 @@
 
 ## [Unreleased]
 
-### Fixed
-- **한글 실행 감지가 조용히 죽던 문제.** `tasklist`/`taskkill` 출력을 콘솔 OEM
-  코드페이지 대신 UTF-8로 디코드하고 있어서, `PYTHONUTF8=1` 환경의 한국어 Windows에서
-  "정보: 실행 중인 작업 중 ..." 메시지를 만나면 subprocess 리더 스레드가 죽고
-  `stdout`이 `None`이 됐습니다. 그 결과 `get_hwp_processes()`가 항상 빈 목록을 돌려줘
-  "아래한글이 이미 실행 중" 경고와 `--kill-hwp`가 동작하지 않았고, 매번 stderr에
-  traceback이 찍혔습니다. 이제 Windows에서는 `encoding="oem", errors="replace"`로
-  디코드합니다. (namun-ji 실기 검증 중 발견)
-- **한컴오피스 설치 감지.** 서버의 `/v1/capabilities`가 `HKLM\SOFTWARE\HNC\HwpRun`만
-  찾다 보니, 64비트 Windows에 32비트 한컴오피스 2022가 깔린 실제 환경(키가
-  `WOW6432Node` 아래에 있고 `HwpRun`은 아예 없음)에서 설치를 놓쳤습니다.
-  이제 실제로 중요한 표식인 `HWPFrame.HwpObject` ProgID 등록 여부를 봅니다.
-- **`hwp2pdf.app` 호환 재노출 누락.** 백엔드 분리 과정에서 `output_extension` 등이
-  `hwp2pdf.app`에서 사라져 `scripts/check_windows.ps1`이 깨졌습니다. 분리 이전의
-  공개 심볼 전체를 다시 재노출하고 `tests/test_app_surface.py`로 고정했습니다.
-- `scripts/install_serve_task.ps1`의 `-LogonType InteractiveToken`은 유효하지 않은
-  값이라 작업 등록이 실패했습니다 (`Interactive`가 맞습니다).
-
-### Changed
-- **내부 구조 분리 — Windows 동작 변화 없음.** 2,472줄짜리 `src/hwp2pdf/app.py`를
-  `i18n.py`(문구), `constants.py`(포맷·확장자·한컴 상수), `paths.py`(플랫폼 경로),
-  `updater.py`(릴리스 확인), `jobs.py`(배치 오케스트레이션),
-  `backends/`(변환 엔진 추상화)로 나눴습니다. 파일 검색·스킵/덮어쓰기 판정·CSV
-  로그·진행률·중지는 `jobs.run_batch()`가 공통으로 담당하고, 한컴 COM 자동화는
-  `backends/windows_com.py`의 `WindowsComBackend`로 옮겼습니다. 옮긴 코드는
-  그대로이며 CLI와 기존 진입점(`hwp_pdf_converter_app_safe.py`)도 수정 없이 동작합니다.
-  macOS에서 Windows 변환 서버에 붙는 원격 백엔드를 붙일 자리를 만드는 것이 목적입니다.
-
 ### Added
+- HWP/HWPX 파일 여러 개를 한 번에 끌어다 놓거나 파일 선택 창에서 복수 선택할 수
+  있습니다. 이후 파일을 추가로 드롭하면 기존 목록에 중복 없이 이어 붙이며, 목록에서
+  선택 항목을 제거하거나 전체를 비울 수 있습니다.
 - **macOS 앱.** Windows 변환 서버에 연결해 Windows판과 동일한 UI로 HWP/HWPX를
   PDF·DOCX로 일괄 변환합니다. 파일 목록·건너뛰기 판정·CSV 로그·진행률·중지는 mac에
   남고 문서 변환만 원격에서 일어나므로 결과 파일은 평소와 같은 위치에 저장됩니다.
@@ -62,6 +37,41 @@
 - `scripts/set_version.py` — `yyyy.MM.dd.N` 버전 계산을 플랫폼 중립 스크립트로
   옮겨 Windows·macOS 빌드가 같은 규칙을 씁니다. `build_windows.ps1 -Version`으로
   버전을 고정할 수 있습니다.
+
+### Changed
+- 변환 완료 결과는 진행 상태와 로그에 표시하고, 작업을 막는 완료 팝업은 띄우지
+  않습니다.
+- 파일 목록 모드에서도 창 전체와 목록 영역에 드롭 대상을 등록해 연속 드래그앤드롭을
+  받을 수 있도록 개선했습니다. 폴더를 드롭하면 기존처럼 폴더 모드로 전환됩니다.
+- 위 다중 파일 선택과 완료 팝업 제거는 **macOS 원격 변환에도 그대로 적용**됩니다.
+  대상이 파일 목록인 경우의 처리를 `jobs.collect_files`/`run_batch` 공유 계층으로
+  올려서, 로컬 COM 경로와 원격 HTTP 경로가 같은 코드를 씁니다.
+- **내부 구조 분리 — Windows 동작 변화 없음.** 2,472줄짜리 `src/hwp2pdf/app.py`를
+  `i18n.py`(문구), `constants.py`(포맷·확장자·한컴 상수), `paths.py`(플랫폼 경로),
+  `updater.py`(릴리스 확인), `jobs.py`(배치 오케스트레이션),
+  `backends/`(변환 엔진 추상화)로 나눴습니다. 파일 검색·스킵/덮어쓰기 판정·CSV
+  로그·진행률·중지는 `jobs.run_batch()`가 공통으로 담당하고, 한컴 COM 자동화는
+  `backends/windows_com.py`의 `WindowsComBackend`로 옮겼습니다. 옮긴 코드는
+  그대로이며 CLI와 기존 진입점(`hwp_pdf_converter_app_safe.py`)도 수정 없이 동작합니다.
+  macOS에서 Windows 변환 서버에 붙는 원격 백엔드를 붙일 자리를 만드는 것이 목적입니다.
+
+### Fixed
+- **한글 실행 감지가 조용히 죽던 문제.** `tasklist`/`taskkill` 출력을 콘솔 OEM
+  코드페이지 대신 UTF-8로 디코드하고 있어서, `PYTHONUTF8=1` 환경의 한국어 Windows에서
+  "정보: 실행 중인 작업 중 ..." 메시지를 만나면 subprocess 리더 스레드가 죽고
+  `stdout`이 `None`이 됐습니다. 그 결과 `get_hwp_processes()`가 항상 빈 목록을 돌려줘
+  "아래한글이 이미 실행 중" 경고와 `--kill-hwp`가 동작하지 않았고, 매번 stderr에
+  traceback이 찍혔습니다. 이제 Windows에서는 `encoding="oem", errors="replace"`로
+  디코드합니다. (namun-ji 실기 검증 중 발견)
+- **한컴오피스 설치 감지.** 서버의 `/v1/capabilities`가 `HKLM\SOFTWARE\HNC\HwpRun`만
+  찾다 보니, 64비트 Windows에 32비트 한컴오피스 2022가 깔린 실제 환경(키가
+  `WOW6432Node` 아래에 있고 `HwpRun`은 아예 없음)에서 설치를 놓쳤습니다.
+  이제 실제로 중요한 표식인 `HWPFrame.HwpObject` ProgID 등록 여부를 봅니다.
+- **`hwp2pdf.app` 호환 재노출 누락.** 백엔드 분리 과정에서 `output_extension` 등이
+  `hwp2pdf.app`에서 사라져 `scripts/check_windows.ps1`이 깨졌습니다. 분리 이전의
+  공개 심볼 전체를 다시 재노출하고 `tests/test_app_surface.py`로 고정했습니다.
+- `scripts/install_serve_task.ps1`의 `-LogonType InteractiveToken`은 유효하지 않은
+  값이라 작업 등록이 실패했습니다 (`Interactive`가 맞습니다).
 
 ## [2026.08.28.1] - 2026-08-28
 
