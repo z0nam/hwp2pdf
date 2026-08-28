@@ -78,6 +78,13 @@ TAILSCALE_BINARIES = (
 )
 
 
+#: At logon the server can start before Tailscale has finished connecting, so
+#: --bind tailscale waits instead of giving up. Autostart would otherwise fail
+#: on every boot, and the only symptom is the client failing to connect.
+TAILSCALE_WAIT_SECONDS = 180
+TAILSCALE_POLL_SECONDS = 5
+
+
 def tailscale_address():
     """First IPv4 address Tailscale has assigned to this machine."""
     for binary in TAILSCALE_BINARIES:
@@ -95,16 +102,33 @@ def tailscale_address():
     return None
 
 
-def resolve_bind(value: str) -> str:
+def resolve_bind(value: str, wait_seconds: float = TAILSCALE_WAIT_SECONDS, notify=None) -> str:
+    """Resolve ``--bind``, waiting for Tailscale to come up if need be."""
     if value != "tailscale":
         return value
+
     address = tailscale_address()
-    if not address:
-        raise SystemExit(
-            "ERROR: could not determine this machine's Tailscale IPv4 address.\n"
-            "Is Tailscale running and logged in? Use --bind <address> instead."
-        )
-    return address
+    if address:
+        return address
+
+    deadline = time.monotonic() + max(0.0, wait_seconds)
+    waited = False
+    while time.monotonic() < deadline:
+        if notify is not None and not waited:
+            notify(f"waiting up to {int(wait_seconds)}s for Tailscale to come up...")
+            waited = True
+        time.sleep(TAILSCALE_POLL_SECONDS)
+        address = tailscale_address()
+        if address:
+            if notify is not None:
+                notify(f"Tailscale is up at {address}")
+            return address
+
+    raise SystemExit(
+        "ERROR: could not determine this machine's Tailscale IPv4 address "
+        f"within {int(wait_seconds)}s.\n"
+        "Is Tailscale running and logged in? Use --bind <address> instead."
+    )
 
 
 def parse_share_root(value: str):
@@ -178,6 +202,13 @@ def build_parser():
     parser.add_argument("--tls-key", default="")
     parser.add_argument("--quiet", action="store_true", help="Do not log every request")
     parser.add_argument(
+        "--tailscale-wait",
+        type=int,
+        default=TAILSCALE_WAIT_SECONDS,
+        help="With --bind tailscale, how long to wait for Tailscale to connect "
+             "before giving up. Autostart at logon races Tailscale's startup.",
+    )
+    parser.add_argument(
         "--log-file",
         default="",
         help="Append output to this file. Defaults to server.log next to the "
@@ -221,7 +252,12 @@ def main(argv=None) -> int:
     from hwp2pdf.server.http_server import create_server
 
     args = build_parser().parse_args(argv)
-    bind = resolve_bind(args.bind)
+    log = ServerLog(resolve_log_path(args.log_file))
+    try:
+        bind = resolve_bind(args.bind, args.tailscale_wait, notify=log)
+    except SystemExit as e:
+        log(str(e))
+        raise
 
     if args.no_auth:
         if bind not in LOOPBACK:
@@ -239,7 +275,6 @@ def main(argv=None) -> int:
 
     share_roots = dict(args.share_root)
     probe = probe_hwp()
-    log = ServerLog(resolve_log_path(args.log_file))
 
     httpd = create_server(
         bind,

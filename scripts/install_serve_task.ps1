@@ -51,7 +51,20 @@ if (-not $Exe -or -not (Test-Path $Exe)) {
 $Windowless = [IO.Path]::GetFileNameWithoutExtension($Exe) -like "hwp2pdf-serve*"
 $Arguments = if ($Windowless) { "--bind $Bind --port $Port" } else { "serve --bind $Bind --port $Port" }
 $Action = New-ScheduledTaskAction -Execute $Exe -Argument $Arguments
-$Trigger = New-ScheduledTaskTrigger -AtLogOn
+
+# Three triggers, because there are three ways to end up with no server:
+#   - at logon: the normal case, including the sign-in after an update restart
+#   - at startup: covers a boot where the session is already established
+#   - every 10 minutes: self-heals anything else (a crash, a closed console
+#     window, Tailscale not being up yet when the logon trigger fired).
+# MultipleInstances Ignore means the repeat is a no-op while it is running.
+$Triggers = @(
+    (New-ScheduledTaskTrigger -AtLogOn),
+    (New-ScheduledTaskTrigger -AtStartup)
+)
+$Repeat = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) `
+    -RepetitionInterval ([TimeSpan]::FromMinutes(10))
+$Triggers += $Repeat
 # Interactive == "run only when user is logged on": the whole point here, so the
 # task lands in the desktop session instead of Session 0.
 $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
@@ -59,14 +72,16 @@ $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interac
 # console window of the fallback build.
 $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
     -ExecutionTimeLimit ([TimeSpan]::Zero) `
-    -RestartCount 3 -RestartInterval ([TimeSpan]::FromMinutes(1))
+    -RestartCount 3 -RestartInterval ([TimeSpan]::FromMinutes(1)) `
+    -MultipleInstances IgnoreNew -StartWhenAvailable
 
-Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger `
+Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Triggers `
     -Principal $Principal -Settings $Settings -Force | Out-Null
 
 Write-Host "Registered scheduled task '$TaskName':"
 Write-Host "  $Exe $Arguments"
-Write-Host "  runs at logon, only while $env:USERNAME is logged on."
+Write-Host "  at logon, at startup, and re-checked every 10 minutes"
+Write-Host "  (only while $env:USERNAME is logged on -- Hangul needs a desktop)."
 Write-Host ""
 if ($Windowless) {
     Write-Host "Windowless build: no console window. Output goes to"

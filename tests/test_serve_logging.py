@@ -70,3 +70,55 @@ def test_log_file_is_a_documented_option():
 @pytest.mark.parametrize("size", [DEFAULT_LOG_MAX_BYTES])
 def test_default_rotation_size_is_sane(size):
     assert 256 * 1024 <= size <= 16 * 1024 * 1024
+
+
+# -- --bind tailscale must survive a slow Tailscale at logon --------------
+def test_bind_passes_through_a_literal_address():
+    from hwp2pdf.serve import resolve_bind
+
+    assert resolve_bind("0.0.0.0") == "0.0.0.0"
+    assert resolve_bind("127.0.0.1") == "127.0.0.1"
+
+
+def test_tailscale_bind_resolves_immediately_when_up(monkeypatch):
+    from hwp2pdf import serve
+
+    monkeypatch.setattr(serve, "tailscale_address", lambda: "100.64.0.1")
+    assert serve.resolve_bind("tailscale") == "100.64.0.1"
+
+
+def test_tailscale_bind_waits_for_a_late_start(monkeypatch):
+    """At logon the server can beat Tailscale to the punch."""
+    from hwp2pdf import serve
+
+    attempts = {"n": 0}
+
+    def late():
+        attempts["n"] += 1
+        return "100.64.0.9" if attempts["n"] >= 3 else None
+
+    notes = []
+    monkeypatch.setattr(serve, "tailscale_address", late)
+    monkeypatch.setattr(serve, "TAILSCALE_POLL_SECONDS", 0)
+
+    assert serve.resolve_bind("tailscale", wait_seconds=5, notify=notes.append) == "100.64.0.9"
+    assert any("waiting" in n for n in notes)
+    assert any("100.64.0.9" in n for n in notes)
+
+
+def test_tailscale_bind_gives_up_eventually(monkeypatch):
+    from hwp2pdf import serve
+
+    monkeypatch.setattr(serve, "tailscale_address", lambda: None)
+    monkeypatch.setattr(serve, "TAILSCALE_POLL_SECONDS", 0)
+
+    with pytest.raises(SystemExit) as excinfo:
+        serve.resolve_bind("tailscale", wait_seconds=0.05)
+    assert "Tailscale" in str(excinfo.value)
+
+
+def test_wait_is_configurable():
+    from hwp2pdf.serve import TAILSCALE_WAIT_SECONDS, build_parser
+
+    assert build_parser().parse_args([]).tailscale_wait == TAILSCALE_WAIT_SECONDS
+    assert build_parser().parse_args(["--tailscale-wait", "30"]).tailscale_wait == 30
