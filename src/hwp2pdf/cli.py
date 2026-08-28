@@ -83,6 +83,13 @@ def build_parser():
         "--token", default="", help="Bearer token for --server (or $HWP2PDF_TOKEN)"
     )
     parser.add_argument(
+        "--timeout",
+        type=int,
+        default=0,
+        help="Force-close and restart Hangul if one conversion exceeds this many "
+             "seconds (local conversion only). 0 waits forever.",
+    )
+    parser.add_argument(
         "--transport",
         choices=config.TRANSPORTS,
         default=None,
@@ -172,6 +179,9 @@ def main(argv=None):
         backend = create_backend(backend_settings, "ko")
     except BackendUnavailable as e:
         parser.exit(1, f"ERROR: {e}\n")
+
+    if args.timeout and hasattr(backend, "job_timeout"):
+        backend.job_timeout = args.timeout
 
     run_batch(
         context.log_queue,

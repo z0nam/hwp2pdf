@@ -57,4 +57,7 @@ TRANSPORT_SHARE = "share"
 DEFAULT_MAX_UPLOAD_BYTES = 512 * 1024 * 1024
 DEFAULT_MAX_QUEUE = 8
 DEFAULT_JOB_TTL_SECONDS = 3600
+#: A stuck conversion holds the single worker, so the server does not
+#: wait forever the way a local desktop run can.
+DEFAULT_JOB_TIMEOUT_SECONDS = 900
 DEFAULT_EVENT_WAIT_SECONDS = 25

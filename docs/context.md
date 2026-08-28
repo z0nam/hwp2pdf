@@ -272,6 +272,15 @@ Hangul COM automation needs an interactive desktop session. Registering `serve` 
 Service puts it in Session 0, which has no desktop and leaves zombie `Hwp.exe` processes behind
 (see known-issues.md). Use a Scheduled Task with "run only when user is logged on".
 
+### Hung Conversions
+
+A single file can wedge Hangul behind a modal dialog the watcher does not
+recognise. `WindowsComBackend(job_timeout=...)` starts a watchdog that force
+closes Hangul and restarts the engine, so the batch continues with the next
+file. It is off by default for local desktop runs (a large document legitimately
+takes minutes) and on by default on the server, where one stuck job would block
+every client.
+
 ### Remote Mode Limitations
 
 - The HWP FileHeader preflight (password / distribution document) runs on the server, so a blocked
@@ -282,7 +291,9 @@ Service puts it in Session 0, which has no desktop and leaves zombie `Hwp.exe` p
 ## 10. Future Work
 
 - Retry queue for failed files
-- Per-file timeout and hung process recovery on the conversion server
+- Expose the per-file timeout in the GUI (it exists as `--timeout` / `--job-timeout`)
+- Dismiss the Hancom dialog that still hangs DOCX export (known-issues.md #1);
+  the timeout recovers from it but does not prevent it
 - Watch-folder mode
 - Keep one Hangul session alive across back-to-back server jobs
 - macOS Keychain storage for the server token

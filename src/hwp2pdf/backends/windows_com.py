@@ -642,13 +642,21 @@ class WindowsComBackend:
         local_preflight=True,
     )
 
-    def __init__(self):
+    def __init__(self, job_timeout: float | None = None):
+        #: Seconds a single conversion may take before Hangul is force-closed
+        #: and restarted. ``None`` keeps the original behaviour of waiting
+        #: forever, which is what a stuck Hancom dialog does today.
+        self.job_timeout = job_timeout
         self.hwp = None
         self.dialog_watcher = None
         self.global_message_box_mode = None
         self.security_ok = False
         self.security_detail = ""
         self._com_initialized = False
+        self._sink = None
+        self._session_lang = "ko"
+        self._engine_broken = False
+        self._timed_out = False
 
     def preflight(self, lang: str) -> None:
         if not IS_WINDOWS:
@@ -661,11 +669,19 @@ class WindowsComBackend:
         import pythoncom
         import win32com.client
 
+        self._sink = sink
+        self._session_lang = lang
+
         sink.put(("log", translate(lang, "init_com")))
         pythoncom.CoInitialize()
         self._com_initialized = True
 
         paths.temp_workdir().mkdir(parents=True, exist_ok=True)
+        self._start_engine(sink, lang)
+
+    def _start_engine(self, sink, lang: str) -> None:
+        """Bring up an HwpObject and everything that hangs off it."""
+        import win32com.client
 
         sink.put(("log", translate(lang, "start_hwp")))
         self.hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
@@ -704,6 +720,52 @@ class WindowsComBackend:
                 )
             )
         self.security_ok, self.security_detail = register_hwp_security_module(self.hwp)
+        self._engine_broken = False
+
+    def _abandon_engine(self, job) -> None:
+        """Watchdog: the conversion overran, so take the engine down.
+
+        Killing Hwp.exe makes the blocked COM call fail, which unblocks the
+        worker; the next convert() brings a fresh engine up.
+        """
+        self._timed_out = True
+        self._engine_broken = True
+        if self._sink is not None:
+            self._sink.put((
+                "log",
+                (
+                    translate(
+                        job.lang, "engine_timeout_kill",
+                        seconds=int(self.job_timeout), name=job.src_path.name,
+                    ),
+                    "warning",
+                ),
+            ))
+        try:
+            kill_hwp()
+        except Exception:
+            pass
+
+    def _restart_engine(self, lang: str) -> bool:
+        """Replace a dead engine so one bad file cannot end the batch."""
+        try:
+            if self.dialog_watcher is not None:
+                self.dialog_watcher.stop()
+        except Exception:
+            pass
+        self.dialog_watcher = None
+        self.hwp = None
+        try:
+            self._start_engine(self._sink, lang)
+        except Exception as e:
+            if self._sink is not None:
+                self._sink.put(
+                    ("log", (translate(lang, "engine_restart_failed", detail=e), "error"))
+                )
+            return False
+        if self._sink is not None:
+            self._sink.put(("log", translate(lang, "engine_restarted")))
+        return True
 
     def session_notes(self, lang: str) -> list:
         on_label = translate(lang, "on")
@@ -719,6 +781,16 @@ class WindowsComBackend:
 
     def convert(self, job) -> JobResult:
         from hwp2pdf.i18n import print_method_label
+
+        if self._engine_broken and not self._restart_engine(job.lang):
+            return JobResult(ok=False, message=translate(job.lang, "engine_restart_failed", detail=""))
+
+        self._timed_out = False
+        watchdog = None
+        if self.job_timeout:
+            watchdog = threading.Timer(self.job_timeout, self._abandon_engine, args=(job,))
+            watchdog.daemon = True
+            watchdog.start()
 
         marker = self.dialog_watcher.mark() if self.dialog_watcher else 0
         source_format = job.src_path.suffix.replace(".", "").upper()
@@ -760,6 +832,14 @@ class WindowsComBackend:
             return JobResult(ok=True, actual_format=actual_format, notices=notices)
 
         except Exception as e:
+            if self._timed_out:
+                # The watchdog killed Hangul out from under this call; report the
+                # timeout rather than the RPC error it produced.
+                return JobResult(
+                    ok=False,
+                    message=translate(job.lang, "job_timeout", seconds=int(self.job_timeout)),
+                    notices=notices,
+                )
             failure_message = str(e)
             if self.dialog_watcher:
                 blocking_message = self.dialog_watcher.blocking_message_since(marker)
@@ -769,6 +849,10 @@ class WindowsComBackend:
                     )
             self._clear_document()
             return JobResult(ok=False, message=failure_message, notices=notices)
+
+        finally:
+            if watchdog is not None:
+                watchdog.cancel()
 
     def cancel(self) -> None:
         # COM conversion is synchronous; the batch loop stops between jobs.

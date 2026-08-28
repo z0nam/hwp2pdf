@@ -167,6 +167,13 @@ def build_parser():
     parser.add_argument("--max-upload-bytes", type=int, default=protocol.DEFAULT_MAX_UPLOAD_BYTES)
     parser.add_argument("--max-queue", type=int, default=protocol.DEFAULT_MAX_QUEUE)
     parser.add_argument("--job-ttl", type=int, default=protocol.DEFAULT_JOB_TTL_SECONDS)
+    parser.add_argument(
+        "--job-timeout",
+        type=int,
+        default=protocol.DEFAULT_JOB_TIMEOUT_SECONDS,
+        help="Force-close and restart Hangul if one conversion takes longer than "
+             "this many seconds. 0 waits forever.",
+    )
     parser.add_argument("--tls-cert", default="")
     parser.add_argument("--tls-key", default="")
     parser.add_argument("--quiet", action="store_true", help="Do not log every request")
@@ -200,6 +207,7 @@ def banner(log, args, bind, token, share_roots, probe):
         log(f"              Hwp.exe already running: {', '.join(probe['running'])}")
     log(f"  shares      {', '.join(sorted(share_roots)) if share_roots else '(none)'}")
     log(f"  max upload  {args.max_upload_bytes // (1024 * 1024)} MB")
+    log(f"  job timeout {str(args.job_timeout) + 's' if args.job_timeout else 'none'}")
     if log.path is not None:
         log(f"  log         {log.path}")
     log("  note        run this in a logged-in desktop session;")
@@ -236,7 +244,7 @@ def main(argv=None) -> int:
     httpd = create_server(
         bind,
         args.port,
-        backend_factory=WindowsComBackend,
+        backend_factory=lambda: WindowsComBackend(job_timeout=args.job_timeout or None),
         hwp_probe=probe_hwp,
         token=token,
         share_roots=share_roots,
