@@ -14,6 +14,7 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 import tkinter as tk
+from tkinter import font as tkfont
 from tkinter import filedialog, messagebox, ttk
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
@@ -1050,6 +1051,257 @@ def register_hwp_security_module(hwp):
         return False, str(e)
 
 
+def blend_hex_color(start: str, end: str, ratio: float):
+    ratio = max(0.0, min(1.0, ratio))
+    start_rgb = tuple(int(start[index : index + 2], 16) for index in (1, 3, 5))
+    end_rgb = tuple(int(end[index : index + 2], 16) for index in (1, 3, 5))
+    blended = tuple(
+        round(start_channel + (end_channel - start_channel) * ratio)
+        for start_channel, end_channel in zip(start_rgb, end_rgb)
+    )
+    return "#{:02x}{:02x}{:02x}".format(*blended)
+
+
+class ModernGradientButton(tk.Button):
+    """Rounded image-backed button with subtle gradients and native semantics."""
+
+    def __init__(
+        self,
+        master,
+        *,
+        command,
+        palette,
+        icon,
+        text="",
+        state="normal",
+        disabled_foreground="#5f6662",
+        width=142,
+        height=38,
+    ):
+        self._button_width = width
+        self._button_height = height
+        self._palette = palette
+        self._icon = icon
+        self._hovered = False
+        self._pressed = False
+        self._logical_state = state
+        self._command = command
+        self._disabled_foreground = disabled_foreground
+        self._images = {}
+
+        style = ttk.Style(master)
+        surface_color = style.lookup("TFrame", "background") or "#f0f0f0"
+        if not surface_color.startswith("#"):
+            red, green, blue = master.winfo_rgb(surface_color)
+            surface_color = "#{:02x}{:02x}{:02x}".format(
+                red // 256, green // 256, blue // 256
+            )
+        self._button_font = tkfont.nametofont("TkDefaultFont", root=master).copy()
+        self._button_font.configure(weight="bold")
+        for name, colors in palette.items():
+            self._images[name] = self._create_gradient_image(
+                master,
+                colors[0],
+                colors[1],
+                colors[2],
+                surface_color,
+            )
+
+        super().__init__(
+            master,
+            command=self._invoke_command,
+            text=text,
+            state="normal",
+            image=self._images["normal"],
+            compound="center",
+            font=self._button_font,
+            foreground="#ffffff",
+            activeforeground="#ffffff",
+            disabledforeground=disabled_foreground,
+            background=surface_color,
+            activebackground=surface_color,
+            borderwidth=0,
+            highlightthickness=1,
+            highlightbackground=surface_color,
+            highlightcolor=palette["normal"][2],
+            padx=0,
+            pady=0,
+            relief="flat",
+            takefocus=state != "disabled",
+            cursor="hand2" if state != "disabled" else "arrow",
+        )
+
+        self.bind("<Enter>", self._on_enter, add="+")
+        self.bind("<Leave>", self._on_leave, add="+")
+        self.bind("<ButtonPress-1>", self._on_press, add="+")
+        self.bind("<ButtonRelease-1>", self._on_release, add="+")
+        self.bind("<FocusIn>", lambda _event: self._sync_visual(), add="+")
+        self.bind("<FocusOut>", lambda _event: self._sync_visual(), add="+")
+        self._sync_visual()
+
+    def _create_gradient_image(self, master, top, bottom, border, surface):
+        image = tk.PhotoImage(
+            master=master,
+            width=self._button_width,
+            height=self._button_height,
+        )
+        radius = 9
+        for y in range(self._button_height):
+            ratio = y / max(self._button_height - 1, 1)
+            fill = blend_hex_color(top, bottom, ratio)
+            if y < self._button_height * 0.35:
+                highlight = 0.045 * (1 - y / (self._button_height * 0.35))
+                fill = blend_hex_color(fill, "#ffffff", highlight)
+
+            row = []
+            for x in range(self._button_width):
+                if not self._inside_rounded_rect(
+                    x, y, self._button_width, self._button_height, radius
+                ):
+                    row.append(surface)
+                elif not self._inside_rounded_rect(
+                    x - 1,
+                    y - 1,
+                    self._button_width - 2,
+                    self._button_height - 2,
+                    radius - 1,
+                ):
+                    row.append(border)
+                else:
+                    row.append(fill)
+            image.put("{" + " ".join(row) + "}", to=(0, y))
+        self._draw_debossed_icon(image, top, bottom)
+        return image
+
+    def _draw_debossed_icon(self, image, top, bottom):
+        pixels = self._icon_pixels(self._icon)
+        icon_x = 11 if self._button_width < 100 else 17
+        icon_y = self._button_height // 2
+        shadow = blend_hex_color(bottom, "#000000", 0.28)
+        highlight = blend_hex_color(top, "#ffffff", 0.30)
+
+        for x, y in pixels:
+            image.put(highlight, to=(icon_x + x + 1, icon_y + y + 1))
+        for x, y in pixels:
+            image.put(shadow, to=(icon_x + x, icon_y + y))
+
+    @staticmethod
+    def _icon_pixels(icon):
+        if icon == "play":
+            pixels = []
+            for y in range(-6, 7):
+                max_x = round(8 * (1 - abs(y) / 6))
+                pixels.extend((x, y) for x in range(max_x + 1))
+            return pixels
+        if icon == "stop":
+            return [(x, y) for y in range(-5, 5) for x in range(10)]
+        return []
+
+    @staticmethod
+    def _inside_rounded_rect(x, y, width, height, radius):
+        if x < 0 or y < 0 or x >= width or y >= height:
+            return False
+        if radius <= x < width - radius or radius <= y < height - radius:
+            return True
+
+        center_x = radius - 0.5 if x < radius else width - radius - 0.5
+        center_y = radius - 0.5 if y < radius else height - radius - 0.5
+        return (x - center_x) ** 2 + (y - center_y) ** 2 <= radius**2
+
+    def _on_enter(self, _event):
+        self._hovered = True
+        self._sync_visual()
+
+    def _on_leave(self, _event):
+        self._hovered = False
+        self._pressed = False
+        self._sync_visual()
+
+    def _on_press(self, _event):
+        if self._logical_state == "disabled":
+            return "break"
+        self._pressed = True
+        self._sync_visual()
+
+    def _on_release(self, event):
+        if self._logical_state == "disabled":
+            return "break"
+        self._pressed = False
+        self._hovered = 0 <= event.x < self.winfo_width() and 0 <= event.y < self.winfo_height()
+        self._sync_visual()
+
+    def _sync_visual(self):
+        if not self._images:
+            return
+
+        if self._logical_state == "disabled":
+            image_name = "disabled"
+            cursor = "arrow"
+            foreground = self._disabled_foreground
+        elif self._pressed:
+            image_name = "pressed"
+            cursor = "hand2"
+            foreground = "#ffffff"
+        elif self._hovered:
+            image_name = "hover"
+            cursor = "hand2"
+            foreground = "#ffffff"
+        else:
+            image_name = "normal"
+            cursor = "hand2"
+            foreground = "#ffffff"
+        super().configure(
+            image=self._images[image_name],
+            cursor=cursor,
+            foreground=foreground,
+            activeforeground=foreground,
+            takefocus=self._logical_state != "disabled",
+        )
+
+    def _invoke_command(self):
+        if self._logical_state != "disabled" and self._command is not None:
+            return self._command()
+        return None
+
+    def invoke(self):
+        if self._logical_state == "disabled":
+            return ""
+        return super().invoke()
+
+    def cget(self, key):
+        if key == "state":
+            return self._logical_state
+        return super().cget(key)
+
+    def configure(self, cnf=None, **kwargs):
+        if isinstance(cnf, dict) and "state" in cnf:
+            cnf = dict(cnf)
+            self._logical_state = cnf.pop("state")
+        if "state" in kwargs:
+            self._logical_state = kwargs.pop("state")
+        result = super().configure(cnf, **kwargs)
+        if hasattr(self, "_images"):
+            self._sync_visual()
+        return result
+
+    config = configure
+
+
+START_BUTTON_PALETTE = {
+    "normal": ("#2caf78", "#17895b", "#126f49"),
+    "hover": ("#38bb83", "#1b9864", "#137650"),
+    "pressed": ("#168050", "#0f6e43", "#0b5b37"),
+    "disabled": ("#a4bdb1", "#8fa79b", "#82978d"),
+}
+
+STOP_BUTTON_PALETTE = {
+    "normal": ("#e76066", "#c83f47", "#a93239"),
+    "hover": ("#ee6c71", "#d14951", "#b23840"),
+    "pressed": ("#bd3941", "#a92e35", "#8f252b"),
+    "disabled": ("#c7aaac", "#b18f92", "#9e7e81"),
+}
+
+
 class ConverterApp:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -1188,10 +1440,23 @@ class ConverterApp:
         actions = ttk.Frame(self.root, padding=(12, 0, 12, 12))
         actions.pack(fill="x")
 
-        self.start_btn = ttk.Button(actions, command=self.start_conversion)
+        self.start_btn = ModernGradientButton(
+            actions,
+            command=self.start_conversion,
+            palette=START_BUTTON_PALETTE,
+            icon="play",
+        )
         self.start_btn.pack(side="left")
 
-        self.stop_btn = ttk.Button(actions, command=self.request_stop, state="disabled")
+        self.stop_btn = ModernGradientButton(
+            actions,
+            command=self.request_stop,
+            palette=STOP_BUTTON_PALETTE,
+            icon="stop",
+            state="disabled",
+            disabled_foreground="#72575a",
+            width=80,
+        )
         self.stop_btn.pack(side="left", padx=(8, 0))
 
         self.ui["open_btn"] = ttk.Button(actions, command=self.open_selected_folder)
