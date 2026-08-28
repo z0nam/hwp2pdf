@@ -7,11 +7,15 @@ __pycache__/
 # Virtual env
 venv/
 .venv/
+.venv-macos/
 .env/
 
 # PyInstaller
 build/
 dist/
+
+# Generated from assets/hwp_to_pdf_final.ico by scripts/make_icns.sh
+assets/*.icns
 
 # Executables
 *.exe

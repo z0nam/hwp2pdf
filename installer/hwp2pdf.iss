@@ -46,6 +46,9 @@ Root: HKCU; Subkey: "Software\HNC\HwpAutomation\Modules"; ValueType: string; Val
 [Icons]
 Name: "{group}\hwp2pdf"; Filename: "{app}\hwp2pdf.exe"
 Name: "{group}\hwp2pdf CLI"; Filename: "{app}\hwp2pdf-cli.exe"
+; Conversion server for macOS/Linux clients. Runs in this logged-in desktop
+; session on purpose -- Hangul automation does not work as a Windows Service.
+Name: "{group}\hwp2pdf 변환 서버 (Conversion Server)"; Filename: "{app}\hwp2pdf-cli.exe"; Parameters: "serve --bind tailscale --init"
 Name: "{group}\Uninstall hwp2pdf"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\hwp2pdf"; Filename: "{app}\hwp2pdf.exe"; Tasks: desktopicon
 

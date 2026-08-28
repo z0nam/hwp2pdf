@@ -6,7 +6,62 @@
 
 ## [Unreleased]
 
-(다음 release에 포함될 변경분이 누적되는 곳)
+### Fixed
+- **한글 실행 감지가 조용히 죽던 문제.** `tasklist`/`taskkill` 출력을 콘솔 OEM
+  코드페이지 대신 UTF-8로 디코드하고 있어서, `PYTHONUTF8=1` 환경의 한국어 Windows에서
+  "정보: 실행 중인 작업 중 ..." 메시지를 만나면 subprocess 리더 스레드가 죽고
+  `stdout`이 `None`이 됐습니다. 그 결과 `get_hwp_processes()`가 항상 빈 목록을 돌려줘
+  "아래한글이 이미 실행 중" 경고와 `--kill-hwp`가 동작하지 않았고, 매번 stderr에
+  traceback이 찍혔습니다. 이제 Windows에서는 `encoding="oem", errors="replace"`로
+  디코드합니다. (namun-ji 실기 검증 중 발견)
+- **한컴오피스 설치 감지.** 서버의 `/v1/capabilities`가 `HKLM\SOFTWARE\HNC\HwpRun`만
+  찾다 보니, 64비트 Windows에 32비트 한컴오피스 2022가 깔린 실제 환경(키가
+  `WOW6432Node` 아래에 있고 `HwpRun`은 아예 없음)에서 설치를 놓쳤습니다.
+  이제 실제로 중요한 표식인 `HWPFrame.HwpObject` ProgID 등록 여부를 봅니다.
+- **`hwp2pdf.app` 호환 재노출 누락.** 백엔드 분리 과정에서 `output_extension` 등이
+  `hwp2pdf.app`에서 사라져 `scripts/check_windows.ps1`이 깨졌습니다. 분리 이전의
+  공개 심볼 전체를 다시 재노출하고 `tests/test_app_surface.py`로 고정했습니다.
+- `scripts/install_serve_task.ps1`의 `-LogonType InteractiveToken`은 유효하지 않은
+  값이라 작업 등록이 실패했습니다 (`Interactive`가 맞습니다).
+
+### Changed
+- **내부 구조 분리 — Windows 동작 변화 없음.** 2,472줄짜리 `src/hwp2pdf/app.py`를
+  `i18n.py`(문구), `constants.py`(포맷·확장자·한컴 상수), `paths.py`(플랫폼 경로),
+  `updater.py`(릴리스 확인), `jobs.py`(배치 오케스트레이션),
+  `backends/`(변환 엔진 추상화)로 나눴습니다. 파일 검색·스킵/덮어쓰기 판정·CSV
+  로그·진행률·중지는 `jobs.run_batch()`가 공통으로 담당하고, 한컴 COM 자동화는
+  `backends/windows_com.py`의 `WindowsComBackend`로 옮겼습니다. 옮긴 코드는
+  그대로이며 CLI와 기존 진입점(`hwp_pdf_converter_app_safe.py`)도 수정 없이 동작합니다.
+  macOS에서 Windows 변환 서버에 붙는 원격 백엔드를 붙일 자리를 만드는 것이 목적입니다.
+
+### Added
+- **macOS 앱.** Windows 변환 서버에 연결해 Windows판과 동일한 UI로 HWP/HWPX를
+  PDF·DOCX로 일괄 변환합니다. 파일 목록·건너뛰기 판정·CSV 로그·진행률·중지는 mac에
+  남고 문서 변환만 원격에서 일어나므로 결과 파일은 평소와 같은 위치에 저장됩니다.
+  드래그앤드롭(Apple Silicon 포함)과 한국어/영어 전환도 그대로 동작합니다.
+  `hwp2pdf-macos.spec` + `scripts/build_macos.sh`로 ad-hoc 서명된 `.app`을 빌드합니다.
+  (공증은 하지 않으므로 첫 실행은 우클릭 → 열기.)
+  로컬 한컴오피스 for Mac은 사용하지 않습니다 — AppleScript 사전도 CLI 변환 진입점도
+  없어 자동화가 불가능합니다. `docs/known-issues.md` §4 참고.
+- **Windows 변환 서버 — `hwp2pdf-cli serve`.** 기존 COM 엔진을 그대로 재사용하는
+  표준 라이브러리 HTTP 서버입니다. 토큰 인증(Bearer), 커서 기반 이벤트 롱폴링,
+  스트리밍 업로드/다운로드, 단일 워커 직렬 큐, 공유 폴더 경로 전달(경로 탈출 차단),
+  선택적 TLS를 지원합니다. `--bind tailscale`은 테일넷 주소에만 바인드해 LAN·공인망
+  노출과 방화벽 규칙을 아예 없앱니다.
+  ⚠️ Windows 서비스로 등록하지 마세요(Session 0 좀비 `Hwp.exe`). 자동 시작은
+  `scripts/install_serve_task.ps1`.
+- CLI에 `--server` / `--token` / `--transport` 추가. `hwp2pdf serve`로 서버를 띄웁니다.
+  CLI와 서버는 이제 tkinter를 import하지 않습니다.
+- 문서: `docs/remote-server.md`(Tailscale·LAN·VM 설정과 문제 해결),
+  `docs/protocol.md`(프로토콜 명세). `scripts/smoke_remote.py`로 실제 서버 왕복 검증,
+  `scripts/check_macos.sh`로 mac 개발 환경 점검.
+- 사용자 설정 저장(`settings.json`) — 서버 주소·토큰·전송 방식과 UI 옵션을
+  플랫폼별 표준 위치에 보관합니다. Windows에서는 기존 `update_state.json`과
+  같은 `%LOCALAPPDATA%\hwp2pdf\` 폴더를 그대로 씁니다.
+- `tests/` 도입과 GitHub Actions 테스트 워크플로(macOS·Windows).
+- `scripts/set_version.py` — `yyyy.MM.dd.N` 버전 계산을 플랫폼 중립 스크립트로
+  옮겨 Windows·macOS 빌드가 같은 규칙을 씁니다. `build_windows.ps1 -Version`으로
+  버전을 고정할 수 있습니다.
 
 ## [2026.08.28.1] - 2026-08-28
 
