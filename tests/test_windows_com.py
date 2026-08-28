@@ -42,6 +42,9 @@ def test_helpers_degrade_quietly_off_windows():
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows only")
 def test_file_header_flags_are_readable_on_windows():
+    # read_hwp_file_flags opens the OLE compound file through pywin32; without
+    # it the function correctly returns None, which would silently pass here.
+    pytest.importorskip("pythoncom")
     assert FIXTURE.exists()
     assert read_hwp_file_flags(FIXTURE) is not None
 

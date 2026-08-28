@@ -10,10 +10,14 @@
 
     Run from an elevated PowerShell prompt.
 
-    NOTE: the server is a console program, so it shows a console window on the
-    desktop. Closing that window terminates the server (the task then reports
-    LastTaskResult 0xC000013A, STATUS_CONTROL_C_EXIT). Minimize it, do not close
-    it. Re-run the task with: Start-ScheduledTask -TaskName '<name>'
+    Prefers hwp2pdf-serve.exe, which is windowless: there is no console window
+    to close by accident. It writes its output to
+    %LOCALAPPDATA%\hwp2pdf\server.log instead.
+
+    If only the console build (hwp2pdf-cli.exe) is present it is used as a
+    fallback, and closing its window stops the server (the task then reports
+    LastTaskResult 0xC000013A, STATUS_CONTROL_C_EXIT). Either way the task is
+    configured to restart the server if it exits unexpectedly.
 #>
 param(
     [string]$Exe = "",
@@ -26,31 +30,50 @@ $ErrorActionPreference = "Stop"
 
 if (-not $Exe) {
     $Root = Split-Path -Parent $PSScriptRoot
-    foreach ($Candidate in @(
-        (Join-Path $Root "dist\hwp2pdf-cli.exe"),
-        (Join-Path ${env:ProgramFiles} "hwp2pdf\hwp2pdf-cli.exe")
+    # Windowless build first; the console build only as a fallback. build_windows.ps1
+    # stamps the version into the file name, so match those too and take the newest.
+    foreach ($Pattern in @(
+        (Join-Path $Root "dist\hwp2pdf-serve*.exe"),
+        (Join-Path ${env:ProgramFiles} "hwp2pdf\hwp2pdf-serve*.exe"),
+        (Join-Path $Root "dist\hwp2pdf-cli*.exe"),
+        (Join-Path ${env:ProgramFiles} "hwp2pdf\hwp2pdf-cli*.exe")
     )) {
-        if (Test-Path $Candidate) { $Exe = $Candidate; break }
+        $Found = Get-ChildItem -Path $Pattern -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+        if ($Found) { $Exe = $Found.FullName; break }
     }
 }
 if (-not $Exe -or -not (Test-Path $Exe)) {
-    throw "Could not find hwp2pdf-cli.exe. Pass -Exe <path>."
+    throw "Could not find hwp2pdf-serve.exe or hwp2pdf-cli.exe. Pass -Exe <path>."
 }
 
-$Action = New-ScheduledTaskAction -Execute $Exe -Argument "serve --bind $Bind --port $Port"
+$Windowless = [IO.Path]::GetFileNameWithoutExtension($Exe) -like "hwp2pdf-serve*"
+$Arguments = if ($Windowless) { "--bind $Bind --port $Port" } else { "serve --bind $Bind --port $Port" }
+$Action = New-ScheduledTaskAction -Execute $Exe -Argument $Arguments
 $Trigger = New-ScheduledTaskTrigger -AtLogOn
 # Interactive == "run only when user is logged on": the whole point here, so the
 # task lands in the desktop session instead of Session 0.
 $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
-$Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)
+# RestartCount/RestartInterval cover both a crash and someone closing the
+# console window of the fallback build.
+$Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+    -ExecutionTimeLimit ([TimeSpan]::Zero) `
+    -RestartCount 3 -RestartInterval ([TimeSpan]::FromMinutes(1))
 
 Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger `
     -Principal $Principal -Settings $Settings -Force | Out-Null
 
 Write-Host "Registered scheduled task '$TaskName':"
-Write-Host "  $Exe serve --bind $Bind --port $Port"
+Write-Host "  $Exe $Arguments"
 Write-Host "  runs at logon, only while $env:USERNAME is logged on."
 Write-Host ""
-Write-Host "A console window will appear on the desktop. Minimize it -- closing it"
-Write-Host "stops the server. Restart with: Start-ScheduledTask -TaskName '$TaskName'"
+if ($Windowless) {
+    Write-Host "Windowless build: no console window. Output goes to"
+    Write-Host "  $env:LOCALAPPDATA\hwp2pdf\server.log"
+} else {
+    Write-Host "Console build: a window will appear on the desktop. Minimize it --"
+    Write-Host "closing it stops the server (the task will restart it within a minute)."
+}
+Write-Host "Start now with: Start-ScheduledTask -TaskName '$TaskName'"
 Write-Host "Remove it with: Unregister-ScheduledTask -TaskName '$TaskName'"

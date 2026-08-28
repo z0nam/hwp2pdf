@@ -179,9 +179,20 @@ def test_multi_file_selection_and_server_panel_coexist(app, tmp_path):
     picked = tmp_path / "a.hwp"
     picked.write_bytes(b"x")
     app._set_file_targets([picked], append=False)
+
+    # Windows defaults to the local engine, so opt into remote the way a user
+    # would; elsewhere remote is the only option.
+    app.use_remote_var.set(True)
+    app._apply_backend_mode()
     app.server_url_var.set("http://host:8765")
 
     assert app.selected_files
     assert app.backend_settings()["url"] == "http://host:8765"
+    assert app.ui["server_frame"].winfo_manager() == "pack"
+
+
+def test_windows_defaults_to_the_local_engine(app):
     if not IS_WINDOWS:
-        assert app.ui["server_frame"].winfo_manager() == "pack"
+        pytest.skip("Windows-only default")
+    assert app.use_remote_var.get() is False
+    assert app.backend_settings()["url"] == ""

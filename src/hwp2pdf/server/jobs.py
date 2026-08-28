@@ -125,6 +125,9 @@ class JobStore:
         self.max_queue = max_queue
         self.job_ttl = job_ttl
         self.jobs = {}
+        #: The one job whose COM session is currently open, if any. Hangul is a
+        #: process/thread singleton, so two live sessions can never coexist.
+        self.active_job = None
         self.lock = threading.Lock()
         self.queue = Queue()
         self.stop_event = threading.Event()
@@ -138,11 +141,22 @@ class JobStore:
             self.worker.start()
 
     def shutdown(self, timeout: float = 10.0):
+        """Stop the worker, closing the live COM session on its own thread.
+
+        Order matters: the session must be closed by the worker (it owns the COM
+        apartment) before the worker exits, or Hwp.exe is left running.
+        """
         self.stop_event.set()
         self.queue.put(None)
         if self.worker is not None:
             self.worker.join(timeout)
+            if self.worker.is_alive():
+                # The worker is wedged inside Hangul; fall back to closing here
+                # so a stuck conversion cannot leak the process indefinitely.
+                self._close_active_session()
             self.worker = None
+        else:
+            self._close_active_session()
         for job_id in list(self.jobs):
             self.delete_job(job_id)
 
@@ -172,10 +186,14 @@ class JobStore:
         job.cancelled = True
         with job.lock:
             job.changed.notify_all()
-        if job.session_open:
+        worker_alive = self.worker is not None and self.worker.is_alive()
+        if job.session_open and worker_alive:
             # Closing must happen on the worker thread that owns the COM apartment.
             self.queue.put(("close", job))
         else:
+            # No worker to run it: close here rather than leak the engine.
+            if job.session_open:
+                self._close_session(job)
             shutil.rmtree(job.workdir, ignore_errors=True)
         return True
 
@@ -229,22 +247,26 @@ class JobStore:
 
     # -- worker ------------------------------------------------------------
     def _run(self):
-        while not self.stop_event.is_set():
-            try:
-                task = self.queue.get(timeout=0.5)
-            except Empty:
-                self.reap_expired()
-                continue
-            if task is None:
-                break
-            try:
-                if task[0] == "close":
-                    self._close_session(task[1])
-                else:
-                    self._convert(task[1], task[2])
-            except Exception as e:  # never let the worker die
-                _job = task[1]
-                _job.emit({"kind": protocol.EVENT_LOG, "text": f"worker error: {e}", "level": "error"})
+        try:
+            while not self.stop_event.is_set():
+                try:
+                    task = self.queue.get(timeout=0.5)
+                except Empty:
+                    self.reap_expired()
+                    continue
+                if task is None:
+                    break
+                try:
+                    if task[0] == "close":
+                        self._close_session(task[1])
+                    else:
+                        self._convert(task[1], task[2])
+                except Exception as e:  # never let the worker die
+                    _job = task[1]
+                    _job.emit({"kind": protocol.EVENT_LOG, "text": f"worker error: {e}", "level": "error"})
+        finally:
+            # Whatever happens, the engine goes down with the thread that owns it.
+            self._close_active_session()
 
     def _sink_for(self, job: Job):
         class _Sink:
@@ -261,9 +283,17 @@ class JobStore:
 
         return _Sink()
 
+    def _close_active_session(self):
+        active = self.active_job
+        if active is not None:
+            self._close_session(active)
+
     def _ensure_session(self, job: Job):
         if job.session_open:
             return
+        # Only one engine session may exist; retire the previous job's first.
+        if self.active_job is not None and self.active_job is not job:
+            self._close_session(self.active_job)
         job.backend = self.backend_factory()
         job.backend.preflight(job.lang)
         job.backend.open_session(
@@ -280,6 +310,7 @@ class JobStore:
         for note in job.backend.session_notes(job.lang):
             self._sink_for(job).put(note)
         job.session_open = True
+        self.active_job = job
         job.emit({"kind": protocol.EVENT_SESSION, "state": "started"})
 
     def _close_session(self, job: Job):
@@ -291,6 +322,8 @@ class JobStore:
             job.emit({"kind": protocol.EVENT_SESSION, "state": "closed"})
         job.session_open = False
         job.backend = None
+        if self.active_job is job:
+            self.active_job = None
         shutil.rmtree(job.workdir, ignore_errors=True)
 
     def _convert(self, job: Job, item: Item):

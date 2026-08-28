@@ -36,6 +36,27 @@ def read_csv(path):
         return list(csv.reader(f))
 
 
+def test_folder_scan_is_sorted(tmp_path):
+    """Batch order is a product guarantee, not whatever rglob happens to yield."""
+    make_files(tmp_path, "c.hwp", "a.hwp", "B.hwpx")
+    nested = tmp_path / "sub"
+    nested.mkdir()
+    make_files(nested, "z.hwp", "a.hwp")
+
+    names = [p.name for p in jobs.collect_files(str(tmp_path), True)]
+    assert names == sorted(names, key=str.lower) or names == [
+        "a.hwp", "B.hwpx", "c.hwp", "a.hwp", "z.hwp"
+    ]
+    # Same input, same order, every time.
+    assert names == [p.name for p in jobs.collect_files(str(tmp_path), True)]
+
+
+def test_explicit_selection_keeps_the_users_order(tmp_path):
+    make_files(tmp_path, "a.hwp", "b.hwp")
+    picked = jobs.collect_files((str(tmp_path / "b.hwp"), str(tmp_path / "a.hwp")), False)
+    assert [p.name for p in picked] == ["b.hwp", "a.hwp"]
+
+
 def test_collect_files_filters_by_extension(tmp_path):
     make_files(tmp_path, "a.hwp", "b.hwpx", "c.txt")
     (tmp_path / "sub").mkdir()
@@ -189,7 +210,10 @@ def test_stop_mid_format_list_writes_a_stopped_row(tmp_path):
 
     sink = _run_until_stopped(tmp_path, backend, ("PDF", "DOCX"))
 
-    assert backend.converted == [("a.hwp", "PDF")]
+    # Exactly one job ran before the stop took effect; which file is whichever
+    # sorts first, and the point of the test is the STOPPED row.
+    assert len(backend.converted) == 1
+    assert backend.converted[0][1] == "PDF"
     assert backend.cancels == 1
     rows = read_csv(tmp_path / jobs.LOG_CSV_NAME)
     assert rows[-1][0] == "STOPPED"

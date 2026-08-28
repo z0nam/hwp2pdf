@@ -24,6 +24,10 @@ def collect_files(target, recursive: bool):
     ``target`` is either a single folder/file path, or an explicit sequence of
     file paths (the GUI's multi-file selection). Handling both here keeps the
     behaviour identical for the local and the remote backend.
+
+    Folder scans are sorted so a batch converts in a predictable order and the
+    CSV log is comparable between runs; ``rglob`` order is filesystem-dependent.
+    An explicit selection keeps the order the user chose.
     """
     allowed_extensions = enabled_extensions()
     if isinstance(target, (tuple, list)):
@@ -42,6 +46,7 @@ def collect_files(target, recursive: bool):
     for path in iterator:
         if path.is_file() and path.suffix.lower() in allowed_extensions:
             files.append(path)
+    files.sort(key=lambda path: (str(path.parent).lower(), path.name.lower()))
     return files
 
 

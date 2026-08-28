@@ -6,18 +6,69 @@ Service puts Hangul in Session 0, where it has no desktop and leaves zombie
 """
 
 import argparse
+import datetime
 import os
 import secrets
 import subprocess
 import sys
+import threading
 import time
+from pathlib import Path
 
 from hwp2pdf import paths
 from hwp2pdf.constants import APP_NAME
 from hwp2pdf.server import protocol
 from hwp2pdf.version import __version__
 
+DEFAULT_LOG_MAX_BYTES = 2 * 1024 * 1024
+
 LOOPBACK = {"127.0.0.1", "::1", "localhost"}
+
+
+class ServerLog:
+    """Write server output to the console, to a file, or to both.
+
+    The windowless build has no console at all -- ``sys.stdout`` and
+    ``sys.stderr`` are ``None`` and a bare ``print`` raises -- so every message
+    this program emits goes through here.
+    """
+
+    def __init__(self, path=None, max_bytes: int = DEFAULT_LOG_MAX_BYTES):
+        self.path = Path(path) if path else None
+        self.max_bytes = max_bytes
+        self.echo = sys.stdout is not None
+        self._lock = threading.Lock()
+        if self.path is not None:
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                self.path = None
+
+    def __call__(self, line: str = "") -> None:
+        if self.echo:
+            try:
+                print(line, flush=True)
+            except Exception:
+                self.echo = False
+        if self.path is None:
+            return
+        stamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with self._lock:
+            try:
+                self._rotate()
+                with open(self.path, "a", encoding="utf-8") as f:
+                    f.write(f"{stamp}  {line}\n")
+            except OSError:
+                self.path = None
+
+    def _rotate(self) -> None:
+        try:
+            if self.path.exists() and self.path.stat().st_size > self.max_bytes:
+                previous = self.path.with_suffix(self.path.suffix + ".1")
+                previous.unlink(missing_ok=True)
+                self.path.replace(previous)
+        except OSError:
+            pass
 TAILSCALE_BINARIES = (
     "tailscale",
     r"C:\Program Files\Tailscale\tailscale.exe",
@@ -119,24 +170,42 @@ def build_parser():
     parser.add_argument("--tls-cert", default="")
     parser.add_argument("--tls-key", default="")
     parser.add_argument("--quiet", action="store_true", help="Do not log every request")
+    parser.add_argument(
+        "--log-file",
+        default="",
+        help="Append output to this file. Defaults to server.log next to the "
+             "settings when there is no console (the windowless build).",
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
 
 
-def banner(args, bind, token, share_roots, probe):
-    print(f"{APP_NAME} conversion server v{__version__} (API {protocol.API_VERSION})")
-    print(f"  listening   http://{bind}:{args.port}")
+def resolve_log_path(explicit: str):
+    if explicit:
+        return Path(explicit).expanduser()
+    if sys.stdout is None:
+        # Windowless build: without a file there would be no output at all.
+        return paths.app_data_dir() / "server.log"
+    return None
+
+
+def banner(log, args, bind, token, share_roots, probe):
+    log(f"{APP_NAME} conversion server v{__version__} (API {protocol.API_VERSION})")
+    log(f"  listening   http://{bind}:{args.port}")
     if bind in LOOPBACK:
-        print("              (loopback only -- reachable from this machine and its VMs)")
-    print(f"  auth        {'token ' + token[:6] + '...' if token else 'DISABLED'}")
-    print(f"  hangul      {'yes' if probe['installed'] else 'NO'} ({probe['detail']})")
+        log("              (loopback only -- reachable from this machine and its VMs)")
+    log(f"  auth        {'token ' + token[:6] + '...' if token else 'DISABLED'}")
+    log(f"  hangul      {'yes' if probe['installed'] else 'NO'} ({probe['detail']})")
     if probe["running"]:
-        print(f"              Hwp.exe already running: {', '.join(probe['running'])}")
-    print(f"  shares      {', '.join(sorted(share_roots)) if share_roots else '(none)'}")
-    print(f"  max upload  {args.max_upload_bytes // (1024 * 1024)} MB")
-    print("  note        keep this window open in a logged-in desktop session;")
-    print("              Hangul automation does not work as a Windows Service.")
-    print("Press Ctrl+C to stop.")
+        log(f"              Hwp.exe already running: {', '.join(probe['running'])}")
+    log(f"  shares      {', '.join(sorted(share_roots)) if share_roots else '(none)'}")
+    log(f"  max upload  {args.max_upload_bytes // (1024 * 1024)} MB")
+    if log.path is not None:
+        log(f"  log         {log.path}")
+    log("  note        run this in a logged-in desktop session;")
+    log("              Hangul automation does not work as a Windows Service.")
+    if log.echo:
+        log("Press Ctrl+C to stop.")
 
 
 def main(argv=None) -> int:
@@ -162,6 +231,7 @@ def main(argv=None) -> int:
 
     share_roots = dict(args.share_root)
     probe = probe_hwp()
+    log = ServerLog(resolve_log_path(args.log_file))
 
     httpd = create_server(
         bind,
@@ -176,21 +246,24 @@ def main(argv=None) -> int:
         tls_cert=args.tls_cert,
         tls_key=args.tls_key,
         quiet=args.quiet,
+        log_sink=log,
     )
 
-    banner(args, bind, token, share_roots, probe)
+    banner(log, args, bind, token, share_roots, probe)
     if args.init and token:
-        print(f"\n  token: {token}\n  stored in {paths.server_token_path()}\n")
+        log(f"  token: {token}")
+        log(f"  stored in {paths.server_token_path()}")
 
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
-        print("\nshutting down...")
+        log("shutting down...")
     finally:
         httpd.shutdown()
         httpd.store.shutdown()
         httpd.server_close()
         time.sleep(0.1)
+        log("stopped")
     return 0
 
 

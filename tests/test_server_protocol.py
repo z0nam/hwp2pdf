@@ -452,3 +452,91 @@ def test_explicit_file_selection_works_over_the_wire(tmp_path, server):
     assert (two / "b.pdf").read_bytes() == PDF_STUB
     assert not (one / "ignored.pdf").exists()
     assert sink.done()[:3] == (2, 0, 0)
+
+
+# -- one engine session at a time (Codex P1) -----------------------------
+def _store(tmp_path, **kwargs):
+    from hwp2pdf.server.jobs import JobStore
+
+    return JobStore(backend_factory=FakeBackend, root=tmp_path / "jobs", **kwargs)
+
+
+def _wait(predicate, timeout=5.0):
+    import time as _time
+
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        if predicate():
+            return True
+        _time.sleep(0.02)
+    return predicate()
+
+
+def _submit(store, job, item_id, name="a.hwp"):
+    from hwp2pdf.server.jobs import Item
+
+    source, _target = job.staged_paths(
+        Item(item_id=item_id, name=name, output_format="PDF", force_one_page=True)
+    )
+    source.parent.mkdir(parents=True, exist_ok=True)
+    job.input_path(item_id).write_bytes(b"fake hwp")
+    store.submit(job, Item(item_id=item_id, name=name, output_format="PDF", force_one_page=True))
+
+
+def test_interleaved_jobs_never_hold_two_engine_sessions(tmp_path):
+    """Hangul is a process singleton: opening job B must retire job A first."""
+    store = _store(tmp_path)
+    store.start()
+    try:
+        first = store.create_job("ko", True)
+        second = store.create_job("ko", True)
+
+        _submit(store, first, "1")
+        assert _wait(lambda: first.session_open)
+        assert store.active_job is first
+
+        _submit(store, second, "1")
+        assert _wait(lambda: second.session_open)
+
+        # The first job's engine was closed, not left dangling beside the second.
+        assert store.active_job is second
+        assert first.session_open is False
+        assert first.backend is None
+    finally:
+        store.shutdown()
+
+
+def test_shutdown_closes_the_live_session(tmp_path):
+    """Ctrl+C must not leave Hwp.exe running."""
+    store = _store(tmp_path)
+    store.start()
+    job = store.create_job("ko", True)
+    _submit(store, job, "1")
+    assert _wait(lambda: job.session_open)
+    backend = job.backend
+    assert backend.sessions_opened == 1
+
+    store.shutdown()
+
+    assert backend.sessions_closed == 1
+    assert job.session_open is False
+    assert store.active_job is None
+
+
+def test_delete_job_without_a_worker_still_closes_the_session(tmp_path):
+    store = _store(tmp_path)
+    store.start()
+    job = store.create_job("ko", True)
+    _submit(store, job, "1")
+    assert _wait(lambda: job.session_open)
+    backend = job.backend
+
+    # Simulate the worker already being gone when the job is torn down.
+    store.stop_event.set()
+    store.queue.put(None)
+    store.worker.join(5)
+
+    store.delete_job(job.job_id)
+
+    assert backend.sessions_closed == 1
+    assert store.active_job is None

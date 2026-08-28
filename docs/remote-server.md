@@ -56,9 +56,19 @@ Windows 서비스(`sc create`, NSSM 등)로 등록하면 Session 0에서 실행�
 .\scripts\install_serve_task.ps1 -Bind tailscale
 ```
 
-⚠️ 서버는 콘솔 프로그램이라 데스크톱에 **검은 콘솔 창**이 뜹니다. **그 창을 닫으면
-서버가 죽습니다** (작업 스케줄러의 `LastTaskResult`가 `0xC000013A`
-= `STATUS_CONTROL_C_EXIT`로 남습니다). 최소화해서 두세요. 다시 띄우려면:
+기본으로 쓰이는 `hwp2pdf-serve.exe`는 **창 없는(windowless) 빌드**라 데스크톱에
+콘솔 창이 뜨지 않습니다 — 실수로 닫아서 서버가 죽는 일이 없습니다. 대신 출력은
+`%LOCALAPPDATA%\hwp2pdf\server.log`에 쌓입니다(2MB마다 `.log.1`로 롤링).
+
+```powershell
+Get-Content "$env:LOCALAPPDATA\hwp2pdf\server.log" -Tail 20
+```
+
+`hwp2pdf-cli.exe serve`(콘솔 빌드)로 띄우면 검은 창이 뜨고, **그 창을 닫으면 서버가
+죽습니다**(`LastTaskResult`가 `0xC000013A` = `STATUS_CONTROL_C_EXIT`). 스크립트가
+등록하는 작업에는 재시작 설정이 들어 있어 1분 안에 되살아나지만, 그 사이 변환은 끊깁니다.
+
+수동으로 다시 띄우려면:
 
 ```powershell
 Start-ScheduledTask -TaskName "hwp2pdf serve"
@@ -227,6 +237,7 @@ python scripts/smoke_remote.py <url> <token> <sample.hwp>   # 실제 변환 왕�
 | `--job-ttl` | 3600초 | 유휴 작업 정리 주기 |
 | `--tls-cert` / `--tls-key` | | 평문 HTTP 대신 TLS |
 | `--quiet` | | 요청 로그 끄기 |
+| `--log-file` | (창 없을 때 `server.log`) | 출력을 파일로 남김 |
 
 루프백이 아닌 주소에 바인드하면서 토큰이 없으면 **서버가 기동을 거부합니다.**
 
@@ -244,7 +255,8 @@ python scripts/smoke_remote.py <url> <token> <sample.hwp>   # 실제 변환 왕�
 | `파일이 서버의 업로드 상한을 초과했습니다` (413) | 공유 폴더 모드를 쓰거나 `--max-upload-bytes`를 올리세요 |
 | `공유 폴더에서 변환 결과를 찾지 못했습니다` | mac 마운트와 서버 `--share-root`가 같은 저장소를 가리키는지, 쓰기 권한이 있는지 확인 |
 | 서버에서 한컴 대화상자가 떠서 멈춤 | 서버를 대화형 세션에서 실행 중인지 확인. 서비스로 돌리면 발생합니다 |
-| 잘 되다가 갑자기 연결 실패 | 서버의 콘솔 창이 닫혔을 가능성. `Get-ScheduledTaskInfo`의 `LastTaskResult`가 `3221225786`(`0xC000013A`)이면 그 경우입니다. `Start-ScheduledTask`로 재시작 |
+| 잘 되다가 갑자기 연결 실패 | `server.log` 마지막 줄과 `Get-ScheduledTaskInfo`의 `LastTaskResult`를 보세요. `3221225786`(`0xC000013A`)이면 콘솔 빌드의 창이 닫힌 경우입니다(창 없는 `hwp2pdf-serve.exe`를 쓰면 안 생깁니다). `Start-ScheduledTask`로 재시작 |
+| 서버가 뭘 하는지 안 보임 | 창 없는 빌드라 정상입니다. `%LOCALAPPDATA%\hwp2pdf\server.log`를 보거나 맥 앱의 `연결 테스트`를 누르세요 |
 | 배치 도중 네트워크 끊김 | 폴링은 커서 기반이라 자동 재개됩니다. 최종 실패한 파일만 CSV에 `FAILED`로 남고 나머지는 계속 진행합니다 |
 
 ---

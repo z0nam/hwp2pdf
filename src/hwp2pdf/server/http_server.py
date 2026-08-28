@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import ssl
+import sys
 import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -36,11 +37,15 @@ class ConversionHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, address, handler_class, *, store, token, max_upload_bytes, hwp_probe):
+    def __init__(self, address, handler_class, *, store, token, max_upload_bytes,
+                 hwp_probe, log_sink=None):
         self.store = store
         self.token = token
         self.max_upload_bytes = max_upload_bytes
         self.hwp_probe = hwp_probe
+        # In a windowed build sys.stderr is None, so request logging has to go
+        # somewhere the stdlib default would not reach.
+        self.log_sink = log_sink
         super().__init__(address, handler_class)
 
 
@@ -52,7 +57,12 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):  # quieter than the stdlib default
         if self.server.quiet:
             return
-        super().log_message(fmt, *args)
+        line = f"{self.address_string()} {fmt % args}"
+        sink = getattr(self.server, "log_sink", None)
+        if sink is not None:
+            sink(line)
+        elif sys.stderr is not None:
+            super().log_message(fmt, *args)
 
     def _send(self, status, payload=None, body=None, content_type="application/json", headers=None):
         if body is None:
@@ -348,6 +358,7 @@ def create_server(
     tls_cert: str = "",
     tls_key: str = "",
     quiet: bool = False,
+    log_sink=None,
 ):
     store = JobStore(
         backend_factory=backend_factory,
@@ -362,6 +373,7 @@ def create_server(
         token=token,
         max_upload_bytes=max_upload_bytes,
         hwp_probe=hwp_probe,
+        log_sink=log_sink,
     )
     httpd.quiet = quiet
     if tls_cert and tls_key:

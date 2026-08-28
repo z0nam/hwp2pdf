@@ -1586,7 +1586,12 @@ class ConverterApp:
         )
 
 
-def main():
+def main(initial_paths=()):
+    """Start the GUI, optionally with documents already selected.
+
+    ``initial_paths`` carries files handed over by the desktop -- on macOS a
+    Finder open lands here through argv emulation.
+    """
     try:
         root = TkinterDnD.Tk()
     except RuntimeError:
@@ -1600,5 +1605,7 @@ def main():
                 break
             except Exception:
                 continue
-    ConverterApp(root)
+    app = ConverterApp(root)
+    if initial_paths:
+        app._set_file_targets((Path(path) for path in initial_paths), append=False)
     root.mainloop()

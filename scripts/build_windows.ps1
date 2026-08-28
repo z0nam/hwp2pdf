@@ -89,19 +89,28 @@ if (-not (Test-Path $DistCliExe)) {
     throw "Expected CLI build output not found: $DistCliExe"
 }
 
+$DistServeExe = Join-Path $Root "dist\hwp2pdf-serve.exe"
+if (-not (Test-Path $DistServeExe)) {
+    throw "Expected server build output not found: $DistServeExe"
+}
+
 $VersionedExe = Join-Path $Root "dist\hwp2pdf-$Version.exe"
 $VersionedCliExe = Join-Path $Root "dist\hwp2pdf-cli-$Version.exe"
+$VersionedServeExe = Join-Path $Root "dist\hwp2pdf-serve-$Version.exe"
 $ZipPath = Join-Path $ReleaseDir "hwp2pdf-windows-$Version.zip"
 
 Move-Item -LiteralPath $DistExe -Destination $VersionedExe -Force
 Move-Item -LiteralPath $DistCliExe -Destination $VersionedCliExe -Force
+Move-Item -LiteralPath $DistServeExe -Destination $VersionedServeExe -Force
 Compress-WithRetry -Path @(
     $VersionedExe,
     $VersionedCliExe,
+    $VersionedServeExe,
     (Join-Path $Root "THIRD_PARTY_NOTICES.md")
 ) -DestinationPath $ZipPath
 
 Write-Host "Version $Version"
 Write-Host "Built $VersionedExe"
 Write-Host "Built $VersionedCliExe"
+Write-Host "Built $VersionedServeExe"
 Write-Host "Built $ZipPath"
