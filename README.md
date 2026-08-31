@@ -268,6 +268,8 @@ Main options:
 - `--server`: Windows 변환 서버 주소 (예: `http://host:17650`). macOS에서는 필수
 - `--token`: 변환 서버 토큰
 - `--transport`: `auto` / `upload` / `share`
+- `--rhwp-fallback`: 서버에 연결할 수 없으면 로컬 rhwp로 PDF 생성 (근사 품질, PDF만)
+- `--rhwp-path`: rhwp 실행 파일 경로
 
 원격 변환(macOS 또는 한컴이 없는 Windows):
 

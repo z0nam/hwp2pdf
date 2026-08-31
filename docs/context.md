@@ -53,6 +53,8 @@ Module map under `src/hwp2pdf`:
 | `backends/base.py` | `ConversionBackend` protocol, `JobSpec`, `JobResult` |
 | `backends/windows_com.py` | the whole COM engine, dialog watcher and security module |
 | `backends/remote_http.py` | HTTP client backend |
+| `backends/local_rhwp.py` | approximate local PDF rendering with rhwp (opt-in fallback) |
+| `backends/fallback.py` | tries one backend, switches on `BackendUnavailable` |
 | `server/` | `protocol.py` (wire contract), `jobs.py` (job store + single worker), `http_server.py` |
 | `serve.py` | `hwp2pdf serve` argument parsing, bind resolution, token handling |
 | `i18n.py` `constants.py` `paths.py` `config.py` `updater.py` | strings, constants, platform paths, `settings.json`, release checks |

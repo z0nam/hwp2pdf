@@ -44,8 +44,12 @@ DEFAULTS = {
         "formats": ["PDF"],
         "job_timeout_enabled": False,
         "job_timeout_minutes": 30,
+        # Approximate local rendering when the server cannot be reached.
+        "rhwp_fallback": False,
     },
     "last_target": "",
+    #: Path to the rhwp executable; empty means "discover it".
+    "rhwp_path": "",
 }
 
 

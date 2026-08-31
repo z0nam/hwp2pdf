@@ -109,7 +109,6 @@ def run_batch(
                 pass
 
         temp_workdir = paths.temp_workdir()
-        staging_enabled = use_safe_copy and backend.capabilities.local_staging
 
         session_options = SessionOptions(
             lang=lang,
@@ -124,6 +123,10 @@ def run_batch(
         except BackendUnavailable as e:
             sink.put(("error", str(e)))
             return
+
+        # Read capabilities only after preflight: a fallback backend does not
+        # know which engine it is until then.
+        staging_enabled = use_safe_copy and backend.capabilities.local_staging
 
         backend.open_session(sink, lang, session_options)
 

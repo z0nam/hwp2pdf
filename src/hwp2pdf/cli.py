@@ -83,6 +83,15 @@ def build_parser():
         "--token", default="", help="Bearer token for --server (or $HWP2PDF_TOKEN)"
     )
     parser.add_argument(
+        "--rhwp-fallback",
+        action="store_true",
+        help="If the conversion server cannot be reached, render PDFs locally "
+             "with rhwp. PDF only, and approximate -- see docs/remote-server.md.",
+    )
+    parser.add_argument(
+        "--rhwp-path", default="", help="Path to the rhwp executable"
+    )
+    parser.add_argument(
         "--timeout",
         type=int,
         default=0,
@@ -176,7 +185,11 @@ def main(argv=None):
 
     context = CliConversionContext(backend_settings)
     try:
-        backend = create_backend(backend_settings, "ko")
+        backend = create_backend(
+            backend_settings, "ko",
+            rhwp_fallback=args.rhwp_fallback,
+            rhwp_path=args.rhwp_path,
+        )
     except BackendUnavailable as e:
         parser.exit(1, f"ERROR: {e}\n")
 

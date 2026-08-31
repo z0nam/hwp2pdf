@@ -400,6 +400,7 @@ class ConverterApp:
         self.force_one_page_var = tk.BooleanVar(value=saved["force_one_page"])
         # Off by default: a large document legitimately takes minutes, and a
         # surprise kill is worse than a slow conversion.
+        self.rhwp_fallback_var = tk.BooleanVar(value=saved["rhwp_fallback"])
         self.job_timeout_var = tk.BooleanVar(value=saved["job_timeout_enabled"])
         self.job_timeout_minutes_var = tk.StringVar(value=str(saved["job_timeout_minutes"]))
         self.output_pdf_var = tk.BooleanVar(value="PDF" in saved["formats"])
@@ -446,7 +447,7 @@ class ConverterApp:
             self.folder_var, self.overwrite_var, self.recursive_var,
             self.use_safe_copy_var, self.force_one_page_var,
             self.output_pdf_var, self.output_docx_var, self.language_var,
-            self.job_timeout_var, self.job_timeout_minutes_var,
+            self.job_timeout_var, self.job_timeout_minutes_var, self.rhwp_fallback_var,
             self.server_url_var, self.server_token_var, self.server_transport_var,
             self.use_remote_var,
         ):
@@ -591,8 +592,11 @@ class ConverterApp:
         )
         self.ui["force_one_page_check"].grid(row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
+        self.ui["rhwp_fallback_check"] = ttk.Checkbutton(opts, variable=self.rhwp_fallback_var)
+        self.ui["rhwp_fallback_check"].grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
+
         timeout_row = ttk.Frame(opts)
-        timeout_row.grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        timeout_row.grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
         self.ui["job_timeout_check"] = ttk.Checkbutton(
             timeout_row, variable=self.job_timeout_var, command=self._apply_timeout_state
         )
@@ -718,6 +722,7 @@ class ConverterApp:
         self.ui["output_label"].configure(text=self.tr("output"))
         self.ui["safe_temp_check"].configure(text=self.tr("safe_temp"))
         self.ui["force_one_page_check"].configure(text=self.tr("force_one_page"))
+        self.ui["rhwp_fallback_check"].configure(text=self.tr("rhwp_fallback_option"))
         self.ui["job_timeout_check"].configure(text=self.tr("job_timeout_option"))
         self.ui["job_timeout_unit"].configure(text=self.tr("job_timeout_minutes"))
         self.ui["job_timeout_note"].configure(
@@ -1038,6 +1043,13 @@ class ConverterApp:
             return None
         return minutes * 60 if minutes > 0 else None
 
+    def rhwp_options(self):
+        """Fallback settings, read on the main thread for the worker."""
+        return {
+            "enabled": bool(self.rhwp_fallback_var.get()),
+            "path": self.settings.get("rhwp_path", ""),
+        }
+
     def backend_settings(self):
         if not self.use_remote_backend():
             return {"url": "", "token": "", "transport": config.TRANSPORT_AUTO, "shares": []}
@@ -1075,6 +1087,7 @@ class ConverterApp:
             "formats": formats or ["PDF"],
             "job_timeout_enabled": bool(self.job_timeout_var.get()),
             "job_timeout_minutes": self._timeout_minutes(),
+            "rhwp_fallback": bool(self.rhwp_fallback_var.get()),
         }
         self.settings["server"].update({
             "url": self.server_url_var.get().strip(),
@@ -1591,6 +1604,7 @@ class ConverterApp:
                 lang,
                 self.backend_settings(),
                 self.job_timeout_seconds(),
+                self.rhwp_options(),
             ),
             daemon=True,
         )
@@ -1617,6 +1631,7 @@ class ConverterApp:
         lang: str,
         backend_settings=None,
         job_timeout=None,
+        rhwp=None,
     ):
         # Tk variables may only be read on the main thread, so the caller
         # resolves the backend settings before starting this worker.
@@ -1624,8 +1639,13 @@ class ConverterApp:
             backend_settings = getattr(self, "backend_settings", None)
             if callable(backend_settings):
                 backend_settings = None
+        rhwp = rhwp or {}
         try:
-            backend = create_backend(backend_settings, lang)
+            backend = create_backend(
+                backend_settings, lang,
+                rhwp_fallback=bool(rhwp.get("enabled")),
+                rhwp_path=rhwp.get("path", ""),
+            )
         except BackendUnavailable as e:
             self.log_queue.put(("error", str(e)))
             return
