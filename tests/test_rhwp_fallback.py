@@ -1,5 +1,6 @@
 """Local rhwp fallback: engaged only when the server cannot start, never silent."""
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -98,9 +99,21 @@ def test_create_backend_wraps_only_when_asked():
     assert isinstance(create_backend(server, "ko", rhwp_fallback=True), FallbackBackend)
 
 
-def test_rhwp_alone_when_no_server_is_configured():
+def test_no_server_configured_falls_back_to_whatever_is_local():
+    """On Windows the local COM engine is still the primary; elsewhere rhwp is all there is."""
     backend = create_backend({"url": ""}, "ko", rhwp_fallback=True)
-    assert isinstance(backend, RhwpBackend)
+    if os.name == "nt":
+        assert isinstance(backend, FallbackBackend)
+        assert isinstance(backend.fallback, RhwpBackend)
+    else:
+        assert isinstance(backend, RhwpBackend)
+
+
+def test_no_server_and_no_fallback_is_refused_off_windows():
+    if os.name == "nt":
+        pytest.skip("Windows has a local engine")
+    with pytest.raises(BackendUnavailable):
+        create_backend({"url": ""}, "ko")
 
 
 # -- the real binary -----------------------------------------------------

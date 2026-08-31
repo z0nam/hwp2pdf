@@ -85,6 +85,20 @@ writes `src/hwp2pdf/version.py`. When building the same release on both, pin the
 second build (`./scripts/build_macos.sh 2026.08.28.3`,
 `.\scripts\build_windows.ps1 -Version 2026.08.28.3`).
 
+## Syncing a working tree to a Windows box
+
+When copying this tree to a Windows machine by hand (for example to test against
+a real Hancom install), set `COPYFILE_DISABLE=1` if the source is macOS:
+
+```bash
+COPYFILE_DISABLE=1 tar --exclude=.git --exclude=.venv -czf tree.tgz .
+```
+
+Without it macOS `tar` emits AppleDouble `._*` companions for every entry, which
+Windows cannot always delete (`._.` in particular defeats `Remove-Item`) and
+which show up as a hundred untracked files. Prefer `git clone` / `git pull` over
+copying whenever the branch is already pushed.
+
 ## Pull Requests
 
 - Keep changes focused and small when possible.
