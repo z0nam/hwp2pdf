@@ -32,6 +32,10 @@ test/
 # Local tool settings
 .claude/
 
+# Local AI conversation archives (may contain prompts and absolute paths)
+.ai-context/archive/
+.ai-context/staging/
+
 # OS
 .DS_Store
 Thumbs.db
