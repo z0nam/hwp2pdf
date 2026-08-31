@@ -24,12 +24,20 @@ ACTUAL_FORMAT = "rhwp"
 
 RHWP_ENV_VAR = "HWP2PDF_RHWP"
 
+def _vendored() -> tuple:
+    """Where scripts/fetch_rhwp.{sh,ps1} installs the binary."""
+    vendor = Path(__file__).resolve().parent.parent.parent.parent / "vendor" / "rhwp"
+    return (vendor / "rhwp", vendor / "rhwp.exe")
+
+
 #: Checked in order when no explicit path is configured.
-KNOWN_LOCATIONS = (
-    Path.home() / "dev" / "hwp-preview-slack-bot" / "vendor" / "rhwp" / "rhwp",
-    Path("/usr/local/bin/rhwp"),
-    Path("/opt/homebrew/bin/rhwp"),
-)
+def known_locations() -> tuple:
+    return _vendored() + (
+        Path("/usr/local/bin/rhwp"),
+        Path("/opt/homebrew/bin/rhwp"),
+        # The sibling project that first vendored rhwp.
+        Path.home() / "dev" / "hwp-preview-slack-bot" / "vendor" / "rhwp" / "rhwp",
+    )
 
 #: rhwp renders; it cannot write Hancom's own formats.
 SUPPORTED_FORMATS = ("PDF",)
@@ -53,7 +61,7 @@ def find_rhwp(explicit: str = "") -> Path | None:
     if on_path:
         return Path(on_path)
 
-    for candidate in KNOWN_LOCATIONS:
+    for candidate in known_locations():
         if candidate.is_file():
             return candidate
     return None

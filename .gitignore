@@ -17,6 +17,9 @@ dist/
 # Generated from assets/hwp_to_pdf_final.ico by scripts/make_icns.sh
 assets/*.icns
 
+# Fetched by scripts/fetch_rhwp.sh (platform-specific, ~10MB)
+vendor/rhwp/
+
 # Executables
 *.exe
 *.zip
