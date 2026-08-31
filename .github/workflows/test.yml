@@ -1,0 +1,26 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+        python-version: ["3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        # requirements.txt brings pywin32 on Windows; without it the COM-backed
+        # tests degrade to their "not available" path and prove nothing.
+        run: python -m pip install --upgrade pip -r requirements.txt -r requirements-dev.txt
+      - name: Run tests
+        run: python -m pytest tests -q

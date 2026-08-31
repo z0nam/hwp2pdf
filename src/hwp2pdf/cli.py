@@ -2,15 +2,16 @@ import argparse
 import sys
 from pathlib import Path
 
-from hwp2pdf.app import (
-    APP_NAME,
-    ConverterApp,
-    enabled_extensions,
-    get_hwp_processes,
-    kill_hwp,
-    translate,
-)
+from hwp2pdf import config
+from hwp2pdf.backends import BackendUnavailable, create_backend
+from hwp2pdf.backends.windows_com import get_hwp_processes, kill_hwp
+from hwp2pdf.constants import APP_NAME, enabled_extensions
+from hwp2pdf.i18n import translate
+from hwp2pdf.jobs import collect_files, run_batch
 from hwp2pdf.version import __version__
+
+# Importing hwp2pdf.app would pull in tkinter; the CLI and the conversion
+# server deliberately stay GUI-free.
 
 
 class CliEventSink:
@@ -46,11 +47,12 @@ class CliEventSink:
 
 
 class CliConversionContext:
-    collect_files = staticmethod(ConverterApp.collect_files)
+    collect_files = staticmethod(collect_files)
 
-    def __init__(self):
+    def __init__(self, backend_settings=None):
         self.log_queue = CliEventSink()
         self.stop_requested = False
+        self.backend_settings = backend_settings
 
 
 def build_parser():
@@ -71,8 +73,42 @@ def build_parser():
         action="store_true",
         help="Continue even if HWP is already running",
     )
+    parser.add_argument(
+        "--server",
+        default="",
+        help="Convert on a Windows conversion server, e.g. http://host:8765 "
+             "(defaults to the saved setting or $HWP2PDF_SERVER_URL)",
+    )
+    parser.add_argument(
+        "--token", default="", help="Bearer token for --server (or $HWP2PDF_TOKEN)"
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=0,
+        help="Force-close and restart Hangul if one conversion exceeds this many "
+             "seconds (local conversion only). 0 waits forever.",
+    )
+    parser.add_argument(
+        "--transport",
+        choices=config.TRANSPORTS,
+        default=None,
+        help="How sources reach the server: auto, upload, or share",
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
+
+
+def resolve_backend_settings(args):
+    """Command line wins over saved settings, which win over defaults."""
+    settings = config.server_settings()
+    if args.server:
+        settings["url"] = args.server
+    if args.token:
+        settings["token"] = args.token
+    if args.transport:
+        settings["transport"] = args.transport
+    return settings
 
 
 def selected_formats(args):
@@ -118,26 +154,47 @@ def prepare_hwp_processes(args):
 
 
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "serve":
+        from hwp2pdf.serve import main as serve_main
+
+        return serve_main(argv[1:])
+
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    backend_settings = resolve_backend_settings(args)
+    remote = bool(backend_settings.get("url"))
 
     target = Path(args.target).expanduser()
     try:
         validate_target(target)
-        prepare_hwp_processes(args)
+        if not remote:
+            prepare_hwp_processes(args)
     except Exception as e:
         parser.exit(1, f"ERROR: {e}\n")
 
-    context = CliConversionContext()
-    ConverterApp._run_conversion(
-        context,
-        str(target),
-        args.recursive,
-        not args.no_overwrite,
-        not args.no_safe_temp,
-        not args.no_force_one_page,
-        selected_formats(args),
-        "ko",
+    context = CliConversionContext(backend_settings)
+    try:
+        backend = create_backend(backend_settings, "ko")
+    except BackendUnavailable as e:
+        parser.exit(1, f"ERROR: {e}\n")
+
+    if args.timeout and hasattr(backend, "job_timeout"):
+        backend.job_timeout = args.timeout
+
+    run_batch(
+        context.log_queue,
+        backend,
+        target=str(target),
+        recursive=args.recursive,
+        overwrite=not args.no_overwrite,
+        use_safe_copy=not args.no_safe_temp,
+        force_one_page=not args.no_force_one_page,
+        output_formats=selected_formats(args),
+        lang="ko",
+        is_stopped=lambda: context.stop_requested,
+        file_collector=context.collect_files,
     )
     return context.log_queue.exit_code
 

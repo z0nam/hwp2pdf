@@ -23,6 +23,7 @@ classifiers = [
     "Intended Audience :: End Users/Desktop",
     "License :: OSI Approved :: MIT License",
     "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS :: MacOS X",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -37,9 +38,13 @@ Repository = "https://github.com/z0nam/hwp2pdf"
 Issues = "https://github.com/z0nam/hwp2pdf/issues"
 Releases = "https://github.com/z0nam/hwp2pdf/releases"
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
 [project.scripts]
 hwp2pdf = "hwp2pdf.cli:main"
 hwp2pdf-gui = "hwp2pdf.app:main"
+hwp2pdf-serve = "hwp2pdf.serve:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

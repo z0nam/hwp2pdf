@@ -1,9 +1,5 @@
-import csv
-import json
 import os
 import queue
-import shutil
-import struct
 import subprocess
 import sys
 import textwrap
@@ -18,1043 +14,116 @@ from tkinter import font as tkfont
 from tkinter import filedialog, messagebox, ttk
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
+from hwp2pdf import config
+from hwp2pdf.backends import BackendUnavailable, create_backend
+from hwp2pdf.backends.windows_com import (
+    ensure_pywin32,
+    get_hwp_processes,
+    is_hwp_running,
+    kill_hwp,
+)
+from hwp2pdf.constants import APP_NAME, APP_TITLE, enabled_extensions
+from hwp2pdf.i18n import LANGUAGE_CODES, LANGUAGE_LABELS, translate
+from hwp2pdf.jobs import collect_files, run_batch
+from hwp2pdf.paths import IS_WINDOWS, reveal_in_file_manager
+from hwp2pdf.updater import (
+    GITHUB_RELEASES_PAGE_URL,
+    UPDATE_DOWNLOAD_DIR,
+    fetch_latest_release,
+    is_installed_build,
+    is_setup_asset_url,
+    latest_release_download_url,
+    latest_release_version,
+    load_update_state,
+    parse_version,
+    save_update_state,
+    should_check_updates,
+)
 from hwp2pdf.version import __version__
 
-APP_NAME = "HWP/HWPX -> PDF/DOCX Converter"
-APP_TITLE = f"{APP_NAME} v{__version__}"
-GITHUB_RELEASES_API_URL = "https://api.github.com/repos/z0nam/hwp2pdf/releases/latest"
-GITHUB_RELEASES_PAGE_URL = "https://github.com/z0nam/hwp2pdf/releases/latest"
-UPDATE_CHECK_INTERVAL_SECONDS = 24 * 60 * 60
-UPDATE_STATE_PATH = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "hwp2pdf" / "update_state.json"
-UPDATE_DOWNLOAD_DIR = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "hwp2pdf" / "updates"
-DEFAULT_OPEN_OPTION = "forceopen:true;versionwarning:false;"
-TEMP_WORKDIR = Path(r"C:\temp\hwp_convert_safe")
-BASE_EXTENSIONS = (".hwp", ".hwpx")
-OUTPUT_FORMATS = {
-    "PDF": ".pdf",
-    "DOCX": ".docx",
-}
-SAVE_FORMAT_ALIASES = {
-    "PDF": ("PDF",),
-    "DOCX": ("OOXML", "DOCX", "MSWORD"),
-}
-HWP_SECURITY_MODULE = ("FilePathCheckDLL", "FilePathCheckerModule")
-HWP_SECURITY_REG_KEY = r"Software\HNC\HwpAutomation\Modules"
-HWP_SECURITY_REG_VALUE = "FilePathCheckerModule"
-HWP_SECURITY_DLL_NAME = "FilePathCheckerModule.dll"
-HWP_SECURITY_INSTALL_DIR = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / "hwp2pdf" / "security"
-MESSAGE_BOX_AUTO_CONFIRM = 0x10
-HANCOM_BLOCKING_DIALOG_MESSAGES = (
-    "복합 파일을 현재 구현하기에 너무 큽니다.",
-    "알 수 없는 형식의 파일입니다.",
+# Compatibility surface. Before the backend split every one of these names was
+# defined in this module, and outside callers import them from here --
+# ``cli.py``, ``src/hwp_pdf_converter_app_safe.py`` and
+# ``scripts/check_windows.ps1`` among them. Re-export the whole previous public
+# surface so a split that was meant to be internal cannot break them.
+from hwp2pdf.backends.windows_com import (  # noqa: F401
+    HancomDialogWatcher,
+    blocked_conversion_reason,
+    build_save_failure_message,
+    configure_pdf_print,
+    detect_hwp_arch,
+    enable_auto_confirm_message_boxes,
+    ensure_hwp_security_module_registered,
+    force_one_page_view,
+    hwp_process_id,
+    is_nup_print_method,
+    read_hwp_file_flags,
+    register_hwp_security_module,
+    reset_pdf_print_method,
+    restore_message_box_mode,
+    save_document_as,
+    save_pdf_with_print_to_pdf,
+    set_hwp_parameter,
 )
-HANCOM_DIALOG_CONFIRM_BUTTONS = ("확인", "OK", "예", "Yes", "계속", "Continue", "닫기", "Close")
-HWP_FILEHEADER_STREAM = "FileHeader"
-HWP_FILE_SIGNATURE = b"HWP Document File"
-HWP_FLAG_COMPRESSED = 1 << 0
-HWP_FLAG_PASSWORD_PROTECTED = 1 << 1
-HWP_FLAG_DISTRIBUTION_DOCUMENT = 1 << 2
-LANGUAGE_LABELS = {
-    "ko": "한국어",
-    "en": "English",
-}
-
-LANGUAGE_CODES = {label: code for code, label in LANGUAGE_LABELS.items()}
-
-TEXT = {
-    "ko": {
-        "target_label": "대상 폴더 또는 파일",
-        "drop_hint": "탐색기에서 HWP/HWPX 파일 여러 개 또는 폴더를 이 창에 끌어다 놓을 수 있습니다.",
-        "invalid_drop": "HWP/HWPX 파일 또는 폴더를 끌어다 놓으세요.",
-        "file_count_estimate": "변환 예상 파일: 총 {count}개",
-        "file_count_unavailable": "변환 예상 파일 수를 확인할 수 없습니다.",
-        "selected_files": "선택한 파일 ({count}개)",
-        "remove_selected": "선택 제거",
-        "clear_all": "전체 비우기",
-        "browse_folder": "폴더 선택...",
-        "pick_file": "파일 선택...",
-        "options": "옵션",
-        "include_subfolders": "하위 폴더 포함",
-        "overwrite": "기존 출력 파일 덮어쓰기",
-        "output": "출력",
-        "safe_temp": "안전한 로컬 임시 폴더 변환 사용(구글 드라이브/네트워크 드라이브 사용시 권장)",
-        "force_one_page": "저장 전 한쪽 보기 강제 적용",
-        "start": "변환 시작",
-        "stop": "중지",
-        "open_selected": "선택 위치 열기",
-        "upgrade": "최신 버전 다운로드",
-        "auto_update": "지금 자동 업데이트",
-        "auto_update_confirm": "v{latest}로 자동 업데이트할까요?\n\n다운로드 후 설치를 시작하며 hwp2pdf가 재시작됩니다.\n관리자 권한 요청이 한 번 표시될 수 있습니다.",
-        "auto_update_busy": "변환이 진행 중입니다. 끝나면 다시 시도하세요.",
-        "auto_update_portable": "자동 업데이트는 설치본에서만 지원됩니다. 브라우저에서 직접 다운로드할까요?",
-        "auto_update_downloading": "업데이트 다운로드 중... {pct}%",
-        "auto_update_installing": "설치 중... 잠시 후 hwp2pdf가 재시작됩니다.",
-        "auto_update_failed": "자동 업데이트 실패: {error}",
-        "update_status_checking": "업데이트 확인 중...",
-        "update_status_current": "최신 버전입니다. 현재: {current}",
-        "update_status_available": "새 버전이 있습니다. 현재: {current} / 최신: {latest}",
-        "update_status_no_release": "최신 버전입니다. 현재: {current}",
-        "update_status_failed": "현재 버전: {current}. 업데이트 확인 불가",
-        "ready": "준비",
-        "log": "로그",
-        "notes_title": "참고",
-        "notes": (
-            "- 안정성을 위해 시작 전에 아래한글을 닫아 주세요.\n"
-            "- 안전한 임시 폴더 모드는 각 파일을 짧은 로컬 경로로 복사한 뒤 변환합니다.\n"
-            "- PDF가 2쪽 보기/모아찍기로 저장되는 문제를 피하려고 기본적으로 한쪽 보기를 강제 적용합니다.\n"
-            "- DOCX 출력 품질은 한컴오피스의 DOCX 내보내기 지원에 따라 달라집니다.\n"
-            "- 실패, 건너뜀, 중단이 있으면 선택 위치에 CSV 로그가 남습니다."
-        ),
-        "language": "언어",
-        "select_folder_title": "변환 대상 폴더 선택",
-        "select_file_title": "변환할 HWP/HWPX 파일 선택 (복수 선택 가능)",
-        "all_files": "모든 파일",
-        "invalid_target": "올바른 폴더 또는 HWP/HWPX 파일을 선택하세요.",
-        "invalid_file": "HWP 또는 HWPX 파일을 선택하세요.",
-        "invalid_open_target": "올바른 폴더 또는 파일을 먼저 선택하세요.",
-        "already_running": "이미 변환 작업이 실행 중입니다.",
-        "select_output": "출력 형식을 하나 이상 선택하세요: PDF 또는 DOCX.",
-        "pywin32_missing": "pywin32를 사용할 수 없습니다.\n\n설치 명령:\npython -m pip install pywin32\n\n상세:\n{detail}",
-        "hwp_running_prompt": (
-            "아래한글 프로세스가 이미 백그라운드에서 실행 중입니다.\n\n"
-            "감지됨: {process_detail}\n\n"
-            "예: HWP를 강제 종료하고 계속\n"
-            "아니오: 그대로 계속\n"
-            "취소: 중단"
-        ),
-        "hwp_kill_failed": "HWP를 자동으로 종료하지 못했습니다.\n\n작업 관리자에서 Hwp.exe를 닫은 뒤 다시 시작하세요.",
-        "hwp_closed_already": "HWP 프로세스가 이미 종료되어 계속 진행합니다.",
-        "starting_conversion": "변환 시작...",
-        "scanning": "파일 검색 중...",
-        "no_files": "{extensions} 파일을 찾지 못했습니다.",
-        "init_com": "한컴 자동화 초기화 중...",
-        "start_hwp": "HWPFrame.HwpObject 시작 중...",
-        "hwp_started": "HWPFrame.HwpObject가 시작되었습니다.",
-        "register_security": "한컴 파일 접근 보안 모듈 등록 중...",
-        "security_self_registered": "보안 모듈 자가등록 완료: {detail}",
-        "security_bundle_missing": "번들 보안 모듈 DLL을 찾지 못해 자가등록을 건너뜁니다: {detail}",
-        "security_self_register_failed": "보안 모듈 자가등록 실패({state}): {detail}",
-        "found_files": "대상 파일 {count}개 발견: {extensions}",
-        "csv_log": "CSV 로그: {path}",
-        "safe_temp_mode": "안전 임시 폴더 모드: {state}",
-        "force_one_page_mode": "한쪽 보기/모아찍기 해제 강제 적용: {state}",
-        "nup_print_reset": "기존 인쇄 방식이 '{method}'로 설정되어 있어 PDF 저장 전 '자동 인쇄(1페이지)'로 강제 적용했습니다.",
-        "output_formats": "출력 형식: {formats}",
-        "auto_confirm_docx": "한컴 확인/오류 대화상자 자동 확인: 켜짐",
-        "security_module": "HWP 파일 접근 보안 모듈: {state}",
-        "on": "켜짐",
-        "off": "꺼짐",
-        "module_unavailable": "모듈 사용 불가",
-        "processing": "처리 중: {path}",
-        "stopped": "사용자가 중지했습니다.",
-        "stop_requested": "중지를 요청했습니다. 현재 파일 처리 후 멈춥니다.",
-        "skipped_exists": "{format} 파일이 이미 있어 건너뜀",
-        "skipped_log": "건너뜀 {format} -> {path}",
-        "failed_log": "실패 {format} -> {path} | {message}",
-        "error_log": "오류: {message}",
-        "ok_log": "성공 {format} ({actual}) -> {path}",
-        "progress_skipped": "[{current}/{total}] 건너뜀",
-        "progress_failed": "[{current}/{total}] 실패",
-        "progress_done": "[{current}/{total}] 완료",
-        "progress_convert": "[{current}/{total}] {name} -> {format}",
-        "open_failed": "{format} 열기 실패",
-        "temp_missing": "임시 {format} 파일이 생성되지 않았습니다.",
-        "remove_log_failed": "성공 로그를 삭제하지 못했습니다: {message}",
-        "unexpected_error": "예상치 못한 오류:\n{message}",
-        "success_status": "성공",
-        "success_message": "변환이 완료되었습니다.",
-        "done_status": "완료. 성공: {success}, 실패: {failed}, 건너뜀: {skipped}",
-        "done_log": "변환 완료 — 성공: {success}, 실패: {failed}, 건너뜀: {skipped}",
-        "done_message": (
-            "변환이 끝났습니다.\n\n"
-            "성공: {success}\n실패: {failed}\n건너뜀: {skipped}\n\n"
-            "로그 파일:\n{log_csv}"
-        ),
-        "error_status": "오류",
-        "status_header": "status",
-        "source_header": "source",
-        "output_header": "output",
-        "message_header": "message",
-        "stopped_csv": "사용자가 중지 요청",
-        "distribution_blocked": (
-            "HWP FileHeader에서 배포용 문서 보안이 감지되었습니다. "
-            "한컴의 인쇄/PDF 제한으로 PDF 변환이 비활성화되었을 수 있어 이 파일은 열지 않고 실패 처리했습니다."
-        ),
-        "password_blocked": (
-            "HWP FileHeader에서 암호 보호 문서가 감지되었습니다. "
-            "문서 암호 없이는 한컴에서 자동으로 열거나 내보낼 수 없습니다."
-        ),
-        "pdf_blocked": (
-            "PDF 내보내기를 사용할 수 없거나 차단되었습니다. 일반적으로 한컴 문서 보안, "
-            "배포용 문서 설정, 인쇄/PDF 제한 때문에 발생합니다."
-        ),
-        "save_failed": "SaveAs {format} 실패. 시도: {errors}",
-        "view_failed": "한쪽 보기 설정에 실패했습니다.",
-        "pdf_print_method_failed": "PDF 인쇄 방식 초기화에 실패했습니다.",
-        "pdf_print_save_failed": "한컴 PDF 인쇄 방식으로 PDF 저장에 실패했습니다.",
-        "hancom_dialog_blocked": "한컴 오류 대화상자가 표시되어 해당 파일을 실패 처리했습니다: {message}",
-    },
-    "en": {
-        "target_label": "Target folder or files",
-        "drop_hint": "Drag multiple HWP/HWPX files or a folder from File Explorer onto this window.",
-        "invalid_drop": "Drop an HWP/HWPX file or folder.",
-        "file_count_estimate": "Estimated files to convert: {count}",
-        "file_count_unavailable": "Could not estimate the number of files to convert.",
-        "selected_files": "Selected files ({count})",
-        "remove_selected": "Remove selected",
-        "clear_all": "Clear all",
-        "browse_folder": "Browse folder...",
-        "pick_file": "Pick file...",
-        "options": "Options",
-        "include_subfolders": "Include subfolders",
-        "overwrite": "Overwrite existing output",
-        "output": "Output",
-        "safe_temp": "Use safe local temp conversion (recommended when using Google Drive / network drives)",
-        "force_one_page": "Force one-page view before export",
-        "start": "Start conversion",
-        "stop": "Stop",
-        "open_selected": "Open selected folder",
-        "upgrade": "Download latest",
-        "auto_update": "Auto-update now",
-        "auto_update_confirm": "Auto-update to v{latest}?\n\nThe update will be downloaded, installed, and hwp2pdf will restart.\nYou may see a one-time UAC prompt.",
-        "auto_update_busy": "A conversion is running. Try again when it finishes.",
-        "auto_update_portable": "Auto-update is only supported for the installed build. Open the browser to download manually?",
-        "auto_update_downloading": "Downloading update... {pct}%",
-        "auto_update_installing": "Installing... hwp2pdf will restart shortly.",
-        "auto_update_failed": "Auto-update failed: {error}",
-        "update_status_checking": "Checking for updates...",
-        "update_status_current": "Up to date. Current: {current}",
-        "update_status_available": "New version available. Current: {current} / Latest: {latest}",
-        "update_status_no_release": "Up to date. Current: {current}",
-        "update_status_failed": "Current: {current}. Update check unavailable",
-        "ready": "Ready",
-        "log": "Log",
-        "notes_title": "Notes",
-        "notes": (
-            "- Close Hancom HWP before starting for best stability.\n"
-            "- Safe temp mode copies each file to a short local path before conversion.\n"
-            "- One-page view and PDF print method reset are forced before export by default to avoid two-page PDF output.\n"
-            "- DOCX output uses Hancom Office export, so layout fidelity depends on Hancom's DOCX support.\n"
-            "- A CSV log is kept in the selected location when there are failures, skips, or stops."
-        ),
-        "language": "Language",
-        "select_folder_title": "Select target folder",
-        "select_file_title": "Select HWP/HWPX files to convert (multiple allowed)",
-        "all_files": "All files",
-        "invalid_target": "Select a valid root folder or HWP/HWPX file.",
-        "invalid_file": "Select an HWP or HWPX file.",
-        "invalid_open_target": "Select a valid folder or file first.",
-        "already_running": "A conversion job is already running.",
-        "select_output": "Select at least one output format: PDF or DOCX.",
-        "pywin32_missing": "pywin32 is not available.\n\nInstall it with:\npython -m pip install pywin32\n\nDetails:\n{detail}",
-        "hwp_running_prompt": (
-            "Hancom HWP process is already running in the background.\n\n"
-            "Detected: {process_detail}\n\n"
-            "Yes: force close HWP and continue\n"
-            "No: continue anyway\n"
-            "Cancel: stop"
-        ),
-        "hwp_kill_failed": "Could not close HWP automatically.\n\nClose Hwp.exe from Task Manager, then start conversion again.",
-        "hwp_closed_already": "HWP process is already closed. Continuing.",
-        "starting_conversion": "Starting conversion...",
-        "scanning": "Scanning files...",
-        "no_files": "No {extensions} files found.",
-        "init_com": "Initializing Hancom COM automation...",
-        "start_hwp": "Starting HWPFrame.HwpObject...",
-        "hwp_started": "HWPFrame.HwpObject started.",
-        "register_security": "Registering HWP file access security module...",
-        "security_self_registered": "Security module self-registered: {detail}",
-        "security_bundle_missing": "Bundled security module DLL not found; skipping self-registration: {detail}",
-        "security_self_register_failed": "Security module self-registration failed ({state}): {detail}",
-        "found_files": "Found {count} file(s): {extensions}",
-        "csv_log": "CSV log: {path}",
-        "safe_temp_mode": "Safe temp mode: {state}",
-        "force_one_page_mode": "Force one-page view / reset N-up printing: {state}",
-        "nup_print_reset": "Existing print method was '{method}', so it was forced to 'Automatic print (one page)' before PDF export.",
-        "output_formats": "Output formats: {formats}",
-        "auto_confirm_docx": "Auto-confirm Hancom confirmation/error dialogs: ON",
-        "security_module": "HWP file access security module: {state}",
-        "on": "ON",
-        "off": "OFF",
-        "module_unavailable": "module unavailable",
-        "processing": "Processing: {path}",
-        "stopped": "Stopped by user.",
-        "stop_requested": "Stop requested. Current file will finish first.",
-        "skipped_exists": "Skipped because {format} already exists",
-        "skipped_log": "SKIPPED {format} -> {path}",
-        "failed_log": "FAILED {format} -> {path} | {message}",
-        "error_log": "ERROR: {message}",
-        "ok_log": "OK {format} ({actual}) -> {path}",
-        "progress_skipped": "[{current}/{total}] Skipped",
-        "progress_failed": "[{current}/{total}] Failed",
-        "progress_done": "[{current}/{total}] Done",
-        "progress_convert": "[{current}/{total}] {name} -> {format}",
-        "open_failed": "Open failed for {format}",
-        "temp_missing": "Temporary {format} was not created",
-        "remove_log_failed": "Could not remove success log: {message}",
-        "unexpected_error": "Unexpected error:\n{message}",
-        "success_status": "Success",
-        "success_message": "Conversion succeeded.",
-        "done_status": "Done. Success: {success}, Failed: {failed}, Skipped: {skipped}",
-        "done_log": "Conversion complete — Success: {success}, Failed: {failed}, Skipped: {skipped}",
-        "done_message": (
-            "Conversion finished.\n\n"
-            "Success: {success}\nFailed: {failed}\nSkipped: {skipped}\n\n"
-            "Log file:\n{log_csv}"
-        ),
-        "error_status": "Error",
-        "status_header": "status",
-        "source_header": "source",
-        "output_header": "output",
-        "message_header": "message",
-        "stopped_csv": "User requested stop",
-        "distribution_blocked": (
-            "Distribution-document security detected from HWP FileHeader. "
-            "PDF export may be disabled by Hancom print/PDF restrictions, so this file was not opened for conversion."
-        ),
-        "password_blocked": (
-            "Password-protected HWP document detected from FileHeader. "
-            "Hancom cannot open or export it automatically without the document password."
-        ),
-        "pdf_blocked": (
-            "PDF export is unavailable or blocked. This is commonly caused by Hancom document security "
-            "or distribution-document settings such as disabled print/PDF export."
-        ),
-        "save_failed": "SaveAs {format} failed. Tried: {errors}",
-        "view_failed": "ViewZoom one-page setting failed",
-        "pdf_print_method_failed": "PDF print method reset failed",
-        "pdf_print_save_failed": "PDF export through Hancom PDF printing failed",
-        "hancom_dialog_blocked": "A Hancom error dialog appeared, so this file was marked as failed: {message}",
-    },
-}
-
-
-def translate(lang: str, key: str, **kwargs):
-    text = TEXT.get(lang, TEXT["ko"]).get(key, TEXT["ko"].get(key, key))
-    return text.format(**kwargs) if kwargs else text
-
-
-def parse_version(value: str):
-    parts = []
-    for part in value.strip().lstrip("vV").split("."):
-        try:
-            parts.append(int(part))
-        except ValueError:
-            break
-    return tuple(parts)
-
-
-def latest_release_version(release: dict):
-    for key in ("tag_name", "name"):
-        value = str(release.get(key) or "").strip()
-        parsed = parse_version(value)
-        if parsed:
-            return value.lstrip("vV")
-    return ""
-
-
-def latest_release_download_url(release: dict):
-    assets = release.get("assets") or []
-    if not isinstance(assets, list):
-        return ""
-
-    candidates = []
-    for asset in assets:
-        if not isinstance(asset, dict):
-            continue
-        name = str(asset.get("name") or "").lower()
-        url = str(asset.get("browser_download_url") or "").strip()
-        if name and url:
-            candidates.append((name, url))
-
-    preferred_patterns = (
-        ("setup", ".exe"),
-        ("windows", ".zip"),
-        (".exe",),
-        (".zip",),
-    )
-    for pattern in preferred_patterns:
-        for name, url in candidates:
-            if all(part in name for part in pattern):
-                return url
-    return candidates[0][1] if candidates else ""
-
-
-def fetch_latest_release():
-    request = urllib.request.Request(
-        GITHUB_RELEASES_API_URL,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": f"hwp2pdf/{__version__}",
-        },
-    )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        return json.loads(response.read().decode("utf-8"))
-
-
-def load_update_state():
-    try:
-        with UPDATE_STATE_PATH.open("r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except Exception:
-        return {}
-
-
-def save_update_state(state: dict):
-    try:
-        UPDATE_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with UPDATE_STATE_PATH.open("w", encoding="utf-8") as f:
-            json.dump(state, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
-
-
-def should_check_updates(state: dict):
-    try:
-        checked_at = float(state.get("checked_at", 0))
-    except (TypeError, ValueError):
-        checked_at = 0
-    return time.time() - checked_at >= UPDATE_CHECK_INTERVAL_SECONDS
-
-
-def is_installed_build() -> bool:
-    """True when this exe was placed by the Inno Setup installer (its
-    unins000.exe / .dat marker sits next to the exe). PyInstaller portable
-    builds and dev runs return False."""
-    if getattr(sys, "_MEIPASS", None) is None:
-        return False
-    try:
-        exe_dir = Path(sys.executable).resolve().parent
-    except Exception:
-        return False
-    return (exe_dir / "unins000.exe").exists() or (exe_dir / "unins000.dat").exists()
-
-
-def is_setup_asset_url(url: str) -> bool:
-    if not url:
-        return False
-    name = url.rsplit("/", 1)[-1].lower()
-    return name.startswith("hwp2pdf-setup-") and name.endswith(".exe")
-
-
-def ensure_pywin32():
-    try:
-        import pythoncom  # noqa: F401
-        import win32com.client  # noqa: F401
-
-        return True, ""
-    except Exception as e:
-        return False, str(e)
-
-
-def get_hwp_processes():
-    try:
-        result = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq Hwp.exe", "/FO", "CSV", "/NH"],
-            capture_output=True,
-            text=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        if result.returncode != 0:
-            return []
-
-        processes = []
-        for row in csv.reader(result.stdout.splitlines()):
-            if len(row) >= 2 and row[0].lower() == "hwp.exe":
-                processes.append({"name": row[0], "pid": row[1]})
-        return processes
-    except Exception:
-        return []
-
-
-def is_hwp_running():
-    return bool(get_hwp_processes())
-
-
-def kill_hwp():
-    try:
-        result = subprocess.run(
-            ["taskkill", "/IM", "Hwp.exe", "/F"],
-            capture_output=True,
-            text=True,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-        return result.returncode == 0 and not is_hwp_running()
-    except Exception:
-        return False
-
-
-def enabled_extensions():
-    return BASE_EXTENSIONS
-
-
-def output_extension(output_format: str):
-    return OUTPUT_FORMATS[output_format]
-
-
-def read_hwp_file_flags(path: Path):
-    if path.suffix.lower() != ".hwp":
-        return None
-
-    try:
-        import pythoncom
-
-        stgm_read = 0
-        stgm_share_exclusive = 0x10
-        storage = pythoncom.StgOpenStorage(str(path), None, stgm_read | stgm_share_exclusive)
-        stream = storage.OpenStream(HWP_FILEHEADER_STREAM, None, stgm_read | stgm_share_exclusive)
-        data = stream.Read(256)
-    except Exception:
-        return None
-
-    if len(data) < 40 or not data.startswith(HWP_FILE_SIGNATURE):
-        return None
-
-    return struct.unpack("<I", data[36:40])[0]
-
-
-def blocked_conversion_reason(src_path: Path, output_format: str, lang: str = "ko"):
-    flags = read_hwp_file_flags(src_path)
-    if flags is None:
-        return None
-
-    if flags & HWP_FLAG_PASSWORD_PROTECTED:
-        return translate(lang, "password_blocked")
-
-    if output_format == "PDF" and flags & HWP_FLAG_DISTRIBUTION_DOCUMENT:
-        return translate(lang, "distribution_blocked")
-
-    return None
-
-
-def build_save_failure_message(output_format: str, errors, lang: str = "ko"):
-    detail = translate(lang, "save_failed", format=output_format, errors="; ".join(errors))
-    if output_format == "PDF":
-        return f"{translate(lang, 'pdf_blocked')} {detail}"
-    return detail
-
-
-def set_hwp_parameter(pset, name: str, value):
-    try:
-        setattr(pset, name, value)
-    except Exception:
-        pass
-
-    for target in (pset, getattr(pset, "HSet", None)):
-        if target is None:
-            continue
-        try:
-            target.SetItem(name, value)
-        except Exception:
-            pass
-
-
-PRINT_METHOD_LABELS = {
-    "ko": {
-        0: "자동 인쇄",
-        1: "공급 용지에 맞추어",
-        2: "나눠 찍기",
-        3: "자동으로 모아 찍기",
-        4: "2쪽씩 모아 찍기",
-        5: "3쪽씩 모아 찍기",
-        6: "4쪽씩 모아 찍기",
-        7: "6쪽씩 모아 찍기",
-        8: "8쪽씩 모아 찍기",
-        9: "9쪽씩 모아 찍기",
-        10: "16쪽씩 모아 찍기",
-    },
-    "en": {
-        0: "Automatic print",
-        1: "Fit to paper",
-        2: "Tile pages",
-        3: "Automatic N-up printing",
-        4: "2 pages per sheet",
-        5: "3 pages per sheet",
-        6: "4 pages per sheet",
-        7: "6 pages per sheet",
-        8: "8 pages per sheet",
-        9: "9 pages per sheet",
-        10: "16 pages per sheet",
-    },
-}
-
-
-def print_method_label(print_method, lang: str):
-    labels = PRINT_METHOD_LABELS.get(lang, PRINT_METHOD_LABELS["ko"])
-    return labels.get(print_method, f"PrintMethod={print_method}")
-
-
-def is_nup_print_method(print_method):
-    return print_method in {3, 4, 5, 6, 7, 8, 9, 10}
-
-
-def save_document_as(hwp, save_target: Path, output_format: str, lang: str = "ko"):
-    errors = []
-    for save_format in SAVE_FORMAT_ALIASES[output_format]:
-        previous_message_box_mode = None
-        try:
-            if output_format == "DOCX":
-                _, previous_message_box_mode, _ = enable_auto_confirm_message_boxes(hwp)
-            saved = hwp.SaveAs(str(save_target), save_format, "")
-            if saved is not False and save_target.exists():
-                return save_format
-            errors.append(f"SaveAs {save_format} returned {saved}")
-        except Exception as e:
-            errors.append(f"SaveAs {save_format}: {e}")
-        finally:
-            if output_format == "DOCX":
-                restore_message_box_mode(hwp, previous_message_box_mode)
-
-    for save_format in SAVE_FORMAT_ALIASES[output_format]:
-        previous_message_box_mode = None
-        try:
-            pset = hwp.HParameterSet.HFileOpenSave
-            hwp.HAction.GetDefault("FileSaveAs_S", pset.HSet)
-
-            # pywin32 can expose this property with different casing depending on generated wrappers.
-            for attr in ("filename", "FileName"):
-                try:
-                    setattr(pset, attr, str(save_target))
-                except Exception:
-                    pass
-
-            pset.Format = save_format
-            try:
-                pset.Attributes = 0
-            except Exception:
-                pass
-
-            if output_format == "DOCX":
-                _, previous_message_box_mode, _ = enable_auto_confirm_message_boxes(hwp)
-            executed = hwp.HAction.Execute("FileSaveAs_S", pset.HSet)
-            if executed is not False and save_target.exists():
-                return save_format
-            errors.append(f"FileSaveAs_S {save_format} returned {executed}")
-        except Exception as e:
-            errors.append(f"FileSaveAs_S {save_format}: {e}")
-        finally:
-            if output_format == "DOCX":
-                restore_message_box_mode(hwp, previous_message_box_mode)
-
-    raise RuntimeError(build_save_failure_message(output_format, errors, lang))
-
-
-def force_one_page_view(hwp, lang: str = "ko"):
-    ps = hwp.HParameterSet.HViewProperties
-    try:
-        hwp.HAction.GetDefault("ViewZoom", ps.HSet)
-    except Exception:
-        pass
-
-    # ZoomCustomDlg + ZoomCntX/ZoomCntY is the Hancom action pattern for explicit multi-page view.
-    # 1 x 1 forces the document back to a single-page view before PDF export.
-    set_hwp_parameter(ps, "ZoomCustomDlg", 1)
-    set_hwp_parameter(ps, "ZoomCntX", 1)
-    set_hwp_parameter(ps, "ZoomCntY", 1)
-    set_hwp_parameter(ps, "ZoomType", 1)
-    set_hwp_parameter(ps, "PageDir", 0)
-    executed = hwp.HAction.Execute("ViewZoom", ps.HSet)
-    if executed is False:
-        raise RuntimeError(translate(lang, "view_failed"))
-
-
-def configure_pdf_print(hwp, save_target: Path | None = None):
-    ps = hwp.HParameterSet.HPrint
-    try:
-        hwp.HAction.GetDefault("PrintToPDFEx", ps.HSet)
-    except Exception:
-        try:
-            hwp.HAction.GetDefault("FilePrint", ps.HSet)
-        except Exception:
-            pass
-
-    original_print_method = None
-    try:
-        original_print_method = int(ps.PrintMethod)
-    except Exception:
-        pass
-
-    if save_target is not None:
-        set_hwp_parameter(ps, "FileName", str(save_target))
-        set_hwp_parameter(ps, "filename", str(save_target))
-
-    values = {
-        "Collate": 1,
-        "UserOrder": 0,
-        "PrintToFile": 0,
-        "NumCopy": 1,
-        "PrinterName": "Hancom PDF",
-        "UsingPagenum": 1,
-        "ReverseOrder": 0,
-        "Pause": 0,
-        "PrintImage": 1,
-        "PrintDrawObj": 1,
-        "PrintClickHere": 0,
-        "PrintAutoFootnoteLtext": "^f",
-        "PrintAutoFootnoteCtext": "^t",
-        "PrintAutoFootnoteRtext": "^P쪽 중 ^p쪽",
-        "PrintAutoHeadnoteLtext": "^c",
-        "PrintAutoHeadnoteCtext": "^n",
-        "PrintAutoHeadnoteRtext": "^p",
-        "PrintFormObj": 1,
-        "PrintMarkPen": 0,
-        "PrintMemo": 0,
-        "PrintMemoContents": 0,
-        "PrintRevision": 1,
-        "PrintBarcode": 1,
-        "PrintPronounce": 0,
-        # 0 = automatic/basic print. This clears saved N-up / multiple-pages print mode before SaveAs PDF.
-        "PrintMethod": 0,
-    }
-    for name, value in values.items():
-        set_hwp_parameter(ps, name, value)
-
-    return ps, original_print_method
-
-
-def reset_pdf_print_method(hwp, lang: str = "ko"):
-    ps, _original_print_method = configure_pdf_print(hwp)
-
-    try:
-        executed = hwp.HAction.Execute("PrintToPDFEx", ps.HSet)
-    except Exception as e:
-        raise RuntimeError(f"{translate(lang, 'pdf_print_method_failed')}: {e}") from e
-
-    if executed is False:
-        raise RuntimeError(translate(lang, "pdf_print_method_failed"))
-
-
-def save_pdf_with_print_to_pdf(hwp, save_target: Path, lang: str = "ko"):
-    ps, original_print_method = configure_pdf_print(hwp, save_target)
-
-    try:
-        executed = hwp.HAction.Execute("PrintToPDFEx", ps.HSet)
-    except Exception as e:
-        raise RuntimeError(f"{translate(lang, 'pdf_print_save_failed')}: {e}") from e
-
-    if executed is False or not save_target.exists():
-        raise RuntimeError(translate(lang, "pdf_print_save_failed"))
-
-    return "PrintToPDFEx", original_print_method
-
-
-def enable_auto_confirm_message_boxes(hwp):
-    previous_mode = None
-    try:
-        previous_mode = hwp.GetMessageBoxMode()
-    except Exception:
-        pass
-
-    try:
-        mode = MESSAGE_BOX_AUTO_CONFIRM
-        if isinstance(previous_mode, int):
-            mode = previous_mode | MESSAGE_BOX_AUTO_CONFIRM
-        hwp.SetMessageBoxMode(mode)
-        return True, previous_mode, ""
-    except Exception as e:
-        return False, previous_mode, str(e)
-
-
-def restore_message_box_mode(hwp, previous_mode):
-    if previous_mode is None:
-        return
-    try:
-        hwp.SetMessageBoxMode(previous_mode)
-    except Exception:
-        pass
-
-
-def hwp_process_id(hwp):
-    try:
-        hwnd = int(hwp.XHwpWindows.Item(0).Handle)
-    except Exception:
-        return None
-
-    try:
-        import win32process
-
-        _thread_id, pid = win32process.GetWindowThreadProcessId(hwnd)
-        return pid or None
-    except Exception:
-        return None
-
-
-class HancomDialogWatcher:
-    def __init__(self, process_id):
-        self.process_id = process_id
-        self.stop_event = threading.Event()
-        self.thread = None
-        self.lock = threading.Lock()
-        self.closed_messages = []
-
-    def start(self):
-        if not self.process_id:
-            return
-        self.thread = threading.Thread(target=self._run, daemon=True)
-        self.thread.start()
-
-    def stop(self):
-        self.stop_event.set()
-        if self.thread:
-            self.thread.join(timeout=1)
-
-    def mark(self):
-        with self.lock:
-            return len(self.closed_messages)
-
-    def blocking_message_since(self, marker):
-        with self.lock:
-            messages = self.closed_messages[marker:]
-        for message in messages:
-            if any(text in message for text in HANCOM_BLOCKING_DIALOG_MESSAGES):
-                return message
-        return ""
-
-    def _record(self, message):
-        with self.lock:
-            if message and message not in self.closed_messages:
-                self.closed_messages.append(message)
-
-    def _run(self):
-        try:
-            import win32con
-            import win32gui
-            import win32process
-        except Exception:
-            return
-
-        def child_texts(hwnd):
-            values = []
-
-            def enum_child(child_hwnd, _param):
-                try:
-                    text = win32gui.GetWindowText(child_hwnd).strip()
-                    if text:
-                        values.append((child_hwnd, text))
-                except Exception:
-                    pass
-
-            try:
-                win32gui.EnumChildWindows(hwnd, enum_child, None)
-            except Exception:
-                pass
-            return values
-
-        def click_confirm_button(hwnd, children):
-            for child_hwnd, text in children:
-                if text.replace("&", "") in HANCOM_DIALOG_CONFIRM_BUTTONS:
-                    try:
-                        win32gui.SendMessage(child_hwnd, win32con.BM_CLICK, 0, 0)
-                        return True
-                    except Exception:
-                        pass
-            try:
-                win32gui.PostMessage(hwnd, win32con.WM_COMMAND, win32con.IDOK, 0)
-                return True
-            except Exception:
-                return False
-
-        def enum_window(hwnd, _param):
-            try:
-                if not win32gui.IsWindowVisible(hwnd):
-                    return True
-                _thread_id, pid = win32process.GetWindowThreadProcessId(hwnd)
-                if pid != self.process_id:
-                    return True
-                if win32gui.GetClassName(hwnd) != "#32770":
-                    return True
-
-                title = win32gui.GetWindowText(hwnd).strip()
-                children = child_texts(hwnd)
-                message = " | ".join([text for text in [title, *(value for _hwnd, value in children)] if text])
-                if not message:
-                    return True
-
-                if click_confirm_button(hwnd, children):
-                    self._record(message)
-            except Exception:
-                pass
-            return True
-
-        while not self.stop_event.is_set():
-            try:
-                win32gui.EnumWindows(enum_window, None)
-            except Exception:
-                pass
-            self.stop_event.wait(0.25)
-
-
-def _resource_root() -> Path:
-    base = getattr(sys, "_MEIPASS", None)
-    if base:
-        return Path(base)
-    return Path(__file__).resolve().parent.parent.parent
-
-
-def _bundled_security_dll(arch: str) -> Path:
-    return _resource_root() / "vendor" / arch / HWP_SECURITY_DLL_NAME
-
-
-def _hwp_install_path() -> Path | None:
-    import winreg
-
-    candidates = [
-        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\HNC\HwpRun"),
-        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Hancom\HwpRun"),
-    ]
-    for hive, subkey in candidates:
-        try:
-            with winreg.OpenKey(hive, subkey) as key:
-                index = 0
-                while True:
-                    try:
-                        version_name = winreg.EnumKey(key, index)
-                    except OSError:
-                        break
-                    index += 1
-                    try:
-                        with winreg.OpenKey(key, version_name) as version_key:
-                            for name in ("Path", "BinPath", ""):
-                                try:
-                                    value, _ = winreg.QueryValueEx(version_key, name)
-                                    if isinstance(value, str) and value.strip():
-                                        return Path(value).expanduser()
-                                except OSError:
-                                    continue
-                    except OSError:
-                        continue
-        except OSError:
-            continue
-
-    try:
-        import win32com.client
-
-        hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
-        try:
-            install_path = hwp.GetHwpInfo("InstallPath")
-            if isinstance(install_path, str) and install_path.strip():
-                return Path(install_path).expanduser()
-        finally:
-            try:
-                hwp.Quit()
-            except Exception:
-                pass
-    except Exception:
-        return None
-
-    return None
-
-
-def _pe_machine(path: Path) -> int | None:
-    try:
-        with path.open("rb") as f:
-            dos = f.read(64)
-            if len(dos) < 64 or dos[:2] != b"MZ":
-                return None
-            (e_lfanew,) = struct.unpack("<I", dos[60:64])
-            f.seek(e_lfanew)
-            sig = f.read(4)
-            if sig != b"PE\0\0":
-                return None
-            machine_bytes = f.read(2)
-            if len(machine_bytes) != 2:
-                return None
-            return struct.unpack("<H", machine_bytes)[0]
-    except OSError:
-        return None
-
-
-def detect_hwp_arch() -> str:
-    install_path = _hwp_install_path()
-    if install_path:
-        hwp_exe = install_path / "Hwp.exe" if install_path.is_dir() else install_path
-        if hwp_exe.exists():
-            machine = _pe_machine(hwp_exe)
-            if machine == 0x8664:
-                return "x64"
-            if machine == 0x014C:
-                return "x86"
-        parts = {part.lower() for part in install_path.parts}
-        if "program files (x86)" in parts:
-            return "x86"
-        if "program files" in parts:
-            return "x64"
-
-    return "x86"
-
-
-def _registered_security_dll() -> Path | None:
-    import winreg
-
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, HWP_SECURITY_REG_KEY) as key:
-            value, _ = winreg.QueryValueEx(key, HWP_SECURITY_REG_VALUE)
-            if isinstance(value, str) and value.strip():
-                return Path(value)
-    except OSError:
-        return None
-    return None
-
-
-def ensure_hwp_security_module_registered():
-    """Make sure HKCU\\Software\\HNC\\HwpAutomation\\Modules\\FilePathCheckerModule
-    points to a usable DLL. Copies the bundled stub for the matching HWP bitness
-    into %LOCALAPPDATA%\\hwp2pdf\\security\\ and writes the registry value when needed.
-
-    Returns (state, detail) where state is one of:
-      "already": registry already had a valid DLL
-      "registered": we copied the DLL and wrote the registry
-      "bundled-missing": vendor DLL is not bundled with this build
-      "error: <reason>": something else went wrong
-    """
-    if os.name != "nt":
-        return "error: non-windows", ""
-
-    arch = detect_hwp_arch()
-    expected_machine = 0x8664 if arch == "x64" else 0x014C
-
-    existing = _registered_security_dll()
-    if existing and existing.exists() and existing.stat().st_size > 0:
-        existing_machine = _pe_machine(existing)
-        if existing_machine is None or existing_machine == expected_machine:
-            return "already", str(existing)
-
-    source = _bundled_security_dll(arch)
-    if not source.exists():
-        return "bundled-missing", str(source)
-
-    try:
-        HWP_SECURITY_INSTALL_DIR.mkdir(parents=True, exist_ok=True)
-        target = HWP_SECURITY_INSTALL_DIR / HWP_SECURITY_DLL_NAME
-        needs_copy = True
-        if target.exists():
-            try:
-                needs_copy = target.stat().st_size != source.stat().st_size
-            except OSError:
-                needs_copy = True
-        if needs_copy:
-            shutil.copy2(source, target)
-    except Exception as e:
-        return f"error: copy: {e}", str(source)
-
-    try:
-        import winreg
-
-        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, HWP_SECURITY_REG_KEY) as key:
-            winreg.SetValueEx(key, HWP_SECURITY_REG_VALUE, 0, winreg.REG_SZ, str(target))
-    except Exception as e:
-        return f"error: registry: {e}", str(target)
-
-    return "registered", f"{arch}:{target}"
-
-
-def register_hwp_security_module(hwp):
-    try:
-        module_name, module_class = HWP_SECURITY_MODULE
-        return bool(hwp.RegisterModule(module_name, module_class)), ""
-    except Exception as e:
-        return False, str(e)
+from hwp2pdf.constants import (  # noqa: F401
+    BASE_EXTENSIONS,
+    DEFAULT_OPEN_OPTION,
+    HANCOM_BLOCKING_DIALOG_MESSAGES,
+    HANCOM_DIALOG_CONFIRM_BUTTONS,
+    HWP_FILE_SIGNATURE,
+    HWP_FILEHEADER_STREAM,
+    HWP_FLAG_COMPRESSED,
+    HWP_FLAG_DISTRIBUTION_DOCUMENT,
+    HWP_FLAG_PASSWORD_PROTECTED,
+    HWP_SECURITY_DLL_NAME,
+    HWP_SECURITY_INSTALL_DIR,
+    HWP_SECURITY_MODULE,
+    HWP_SECURITY_REG_KEY,
+    HWP_SECURITY_REG_VALUE,
+    MESSAGE_BOX_AUTO_CONFIRM,
+    OUTPUT_FORMATS,
+    SAVE_FORMAT_ALIASES,
+    TEMP_WORKDIR,
+    output_extension,
+)
+from hwp2pdf.i18n import PRINT_METHOD_LABELS, TEXT, print_method_label  # noqa: F401
+from hwp2pdf.updater import (  # noqa: F401
+    GITHUB_RELEASES_API_URL,
+    UPDATE_CHECK_INTERVAL_SECONDS,
+    UPDATE_STATE_PATH,
+)
+
+#: Names this module has always exposed. ``tests/test_app_surface.py`` asserts
+#: that every one of them still resolves. Written as a literal so linters can
+#: see that the re-export imports above are deliberate.
+__all__ = [
+    "APP_NAME", "APP_TITLE", "BASE_EXTENSIONS", "DEFAULT_OPEN_OPTION",
+    "GITHUB_RELEASES_API_URL", "GITHUB_RELEASES_PAGE_URL",
+    "HANCOM_BLOCKING_DIALOG_MESSAGES", "HANCOM_DIALOG_CONFIRM_BUTTONS",
+    "HWP_FILEHEADER_STREAM", "HWP_FILE_SIGNATURE", "HWP_FLAG_COMPRESSED",
+    "HWP_FLAG_DISTRIBUTION_DOCUMENT", "HWP_FLAG_PASSWORD_PROTECTED",
+    "HWP_SECURITY_DLL_NAME", "HWP_SECURITY_INSTALL_DIR", "HWP_SECURITY_MODULE",
+    "HWP_SECURITY_REG_KEY", "HWP_SECURITY_REG_VALUE", "HancomDialogWatcher",
+    "LANGUAGE_CODES", "LANGUAGE_LABELS", "MESSAGE_BOX_AUTO_CONFIRM",
+    "ModernGradientButton", "OUTPUT_FORMATS", "PRINT_METHOD_LABELS",
+    "SAVE_FORMAT_ALIASES", "START_BUTTON_PALETTE", "STOP_BUTTON_PALETTE",
+    "TEMP_WORKDIR", "TEXT", "UPDATE_CHECK_INTERVAL_SECONDS",
+    "UPDATE_DOWNLOAD_DIR", "UPDATE_STATE_PATH", "ConverterApp",
+    "blend_hex_color", "blocked_conversion_reason", "build_save_failure_message",
+    "configure_pdf_print", "detect_hwp_arch", "enable_auto_confirm_message_boxes",
+    "enabled_extensions", "ensure_hwp_security_module_registered",
+    "ensure_pywin32", "fetch_latest_release", "force_one_page_view",
+    "get_hwp_processes", "hwp_process_id", "is_hwp_running", "is_installed_build",
+    "is_nup_print_method", "is_setup_asset_url", "kill_hwp",
+    "latest_release_download_url", "latest_release_version", "load_update_state",
+    "main", "output_extension", "parse_version", "print_method_label",
+    "read_hwp_file_flags", "register_hwp_security_module",
+    "reset_pdf_print_method", "restore_message_box_mode", "save_document_as",
+    "save_pdf_with_print_to_pdf", "save_update_state", "set_hwp_parameter",
+    "should_check_updates", "translate",
+]
+
+LEGACY_EXPORTS = tuple(__all__)
 
 
 def blend_hex_color(start: str, end: str, ratio: float):
@@ -1315,19 +384,39 @@ class ConverterApp:
         self.root.geometry("920x710")
         self.root.minsize(820, 580)
 
-        self.folder_var = tk.StringVar()
-        self.overwrite_var = tk.BooleanVar(value=True)
-        self.recursive_var = tk.BooleanVar(value=True)
-        self.folder_recursive_preference = True
+        self.settings = config.load()
+        saved = self.settings["options"]
+        server = config.server_settings(self.settings)
+
+        self.folder_var = tk.StringVar(value=self.settings.get("last_target", ""))
+        self.overwrite_var = tk.BooleanVar(value=saved["overwrite"])
+        self.recursive_var = tk.BooleanVar(value=saved["recursive"])
+        self.folder_recursive_preference = saved["recursive"]
         self._updating_recursive_for_target = False
         self._updating_file_targets = False
         self._file_mode_active = False
         self.selected_files = []
-        self.use_safe_copy_var = tk.BooleanVar(value=True)
-        self.force_one_page_var = tk.BooleanVar(value=True)
-        self.output_pdf_var = tk.BooleanVar(value=True)
-        self.output_docx_var = tk.BooleanVar(value=False)
-        self.language_var = tk.StringVar(value=LANGUAGE_LABELS["ko"])
+        self.use_safe_copy_var = tk.BooleanVar(value=saved["safe_temp"])
+        self.force_one_page_var = tk.BooleanVar(value=saved["force_one_page"])
+        # Off by default: a large document legitimately takes minutes, and a
+        # surprise kill is worse than a slow conversion.
+        self.job_timeout_var = tk.BooleanVar(value=saved["job_timeout_enabled"])
+        self.job_timeout_minutes_var = tk.StringVar(value=str(saved["job_timeout_minutes"]))
+        self.output_pdf_var = tk.BooleanVar(value="PDF" in saved["formats"])
+        self.output_docx_var = tk.BooleanVar(value="DOCX" in saved["formats"])
+        self.language_var = tk.StringVar(
+            value=LANGUAGE_LABELS.get(self.settings.get("language"), LANGUAGE_LABELS["ko"])
+        )
+
+        # Conversion happens locally on Windows and on a server everywhere else.
+        self.server_url_var = tk.StringVar(value=server.get("url", ""))
+        self.server_token_var = tk.StringVar(value=server.get("token", ""))
+        self.server_transport_var = tk.StringVar(value=server.get("transport", config.TRANSPORT_AUTO))
+        self.transport_label_var = tk.StringVar()
+        self.use_remote_var = tk.BooleanVar(value=not IS_WINDOWS or bool(server.get("url")))
+        self.server_status_var = tk.StringVar()
+        self.server_test_running = False
+        self._save_settings_job = None
 
         self.log_queue = queue.Queue()
         self.worker = None
@@ -1353,6 +442,16 @@ class ConverterApp:
             self.ui["drop_hint_label"].grid_remove()
         self.folder_var.trace_add("write", self._on_target_path_changed)
         self.recursive_var.trace_add("write", self._on_recursive_option_changed)
+        for var in (
+            self.folder_var, self.overwrite_var, self.recursive_var,
+            self.use_safe_copy_var, self.force_one_page_var,
+            self.output_pdf_var, self.output_docx_var, self.language_var,
+            self.job_timeout_var, self.job_timeout_minutes_var,
+            self.server_url_var, self.server_token_var, self.server_transport_var,
+            self.use_remote_var,
+        ):
+            var.trace_add("write", self._schedule_save_settings)
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._apply_cached_update_state()
         self._poll_log_queue()
         self.root.after(1000, self.check_for_updates_if_due)
@@ -1413,7 +512,6 @@ class ConverterApp:
         self.ui["browse_btn"].grid(row=0, column=1, sticky="e", padx=(0, 8))
         self.ui["pick_btn"] = ttk.Button(path_row, command=self.pick_file_folder)
         self.ui["pick_btn"].grid(row=0, column=2, sticky="e")
-
         self.ui["file_list_frame"] = ttk.LabelFrame(top, padding=(8, 6))
         self.ui["file_list_frame"].grid(row=2, column=0, sticky="ew", pady=(6, 0))
         self.ui["file_list_frame"].columnconfigure(0, weight=1)
@@ -1493,7 +591,61 @@ class ConverterApp:
         )
         self.ui["force_one_page_check"].grid(row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
+        timeout_row = ttk.Frame(opts)
+        timeout_row.grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        self.ui["job_timeout_check"] = ttk.Checkbutton(
+            timeout_row, variable=self.job_timeout_var, command=self._apply_timeout_state
+        )
+        self.ui["job_timeout_check"].pack(side="left")
+        self.ui["job_timeout_entry"] = ttk.Spinbox(
+            timeout_row, from_=1, to=600, width=5, textvariable=self.job_timeout_minutes_var
+        )
+        self.ui["job_timeout_entry"].pack(side="left", padx=(8, 4))
+        self.ui["job_timeout_unit"] = ttk.Label(timeout_row)
+        self.ui["job_timeout_unit"].pack(side="left")
+        self.ui["job_timeout_note"] = ttk.Label(timeout_row, foreground="#666666")
+        self.ui["job_timeout_note"].pack(side="left", padx=(12, 0))
+
+        server_frame = ttk.LabelFrame(self.root, padding=12)
+        self.ui["server_frame"] = server_frame
+        server_frame.columnconfigure(1, weight=1)
+
+        self.ui["server_remote_check"] = ttk.Checkbutton(
+            server_frame, variable=self.use_remote_var, command=self._apply_backend_mode
+        )
+        if IS_WINDOWS:
+            # Elsewhere there is no local engine, so the choice is not offered.
+            self.ui["server_remote_check"].grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 8))
+
+        self.ui["server_address_label"] = ttk.Label(server_frame)
+        self.ui["server_address_label"].grid(row=1, column=0, sticky="w", padx=(0, 8))
+        self.ui["server_address_entry"] = ttk.Entry(server_frame, textvariable=self.server_url_var)
+        self.ui["server_address_entry"].grid(row=1, column=1, sticky="ew")
+        self.ui["server_test_btn"] = ttk.Button(server_frame, command=self.test_server_connection)
+        self.ui["server_test_btn"].grid(row=1, column=2, sticky="e", padx=(8, 0))
+
+        self.ui["server_token_label"] = ttk.Label(server_frame)
+        self.ui["server_token_label"].grid(row=2, column=0, sticky="w", padx=(0, 8), pady=(6, 0))
+        self.ui["server_token_entry"] = ttk.Entry(
+            server_frame, textvariable=self.server_token_var, show="\u2022"
+        )
+        self.ui["server_token_entry"].grid(row=2, column=1, sticky="ew", pady=(6, 0))
+
+        self.ui["server_transport_label"] = ttk.Label(server_frame)
+        self.ui["server_transport_label"].grid(row=3, column=0, sticky="w", padx=(0, 8), pady=(6, 0))
+        self.ui["server_transport_combo"] = ttk.Combobox(
+            server_frame, state="readonly", width=14, textvariable=self.transport_label_var
+        )
+        self.ui["server_transport_combo"].grid(row=3, column=1, sticky="w", pady=(6, 0))
+        self.ui["server_transport_combo"].bind("<<ComboboxSelected>>", self._on_transport_changed)
+
+        self.ui["server_status_label"] = ttk.Label(
+            server_frame, textvariable=self.server_status_var, wraplength=760, justify="left"
+        )
+        self.ui["server_status_label"].grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
+
         actions = ttk.Frame(self.root, padding=(12, 0, 12, 12))
+        self.ui["actions_frame"] = actions
         actions.pack(fill="x")
 
         self.start_btn = ModernGradientButton(
@@ -1566,6 +718,12 @@ class ConverterApp:
         self.ui["output_label"].configure(text=self.tr("output"))
         self.ui["safe_temp_check"].configure(text=self.tr("safe_temp"))
         self.ui["force_one_page_check"].configure(text=self.tr("force_one_page"))
+        self.ui["job_timeout_check"].configure(text=self.tr("job_timeout_option"))
+        self.ui["job_timeout_unit"].configure(text=self.tr("job_timeout_minutes"))
+        self.ui["job_timeout_note"].configure(
+            text=self.tr("job_timeout_remote_note") if self.use_remote_backend() else ""
+        )
+        self._apply_timeout_state()
         self.start_btn.configure(text=self.tr("start"))
         self.stop_btn.configure(text=self.tr("stop"))
         self.ui["open_btn"].configure(text=self.tr("open_selected"))
@@ -1573,7 +731,17 @@ class ConverterApp:
         self.auto_update_btn.configure(text=self.tr("auto_update"))
         self.ui["log_label"].configure(text=self.tr("log"))
         self.ui["note_frame"].configure(text=self.tr("notes_title"))
-        self.ui["notes_label"].configure(text=self.tr("notes"))
+        self.ui["notes_label"].configure(
+            text=self.tr("notes_remote" if self.use_remote_var.get() else "notes")
+        )
+        self.ui["server_frame"].configure(text=self.tr("server_section"))
+        self.ui["server_remote_check"].configure(text=self.tr("server_use_remote"))
+        self.ui["server_address_label"].configure(text=self.tr("server_address"))
+        self.ui["server_token_label"].configure(text=self.tr("server_token"))
+        self.ui["server_transport_label"].configure(text=self.tr("server_transport_label"))
+        self.ui["server_test_btn"].configure(text=self.tr("server_test"))
+        self._apply_transport_labels()
+        self._apply_backend_mode()
         if not self.is_running:
             self.progress_label_var.set(self.tr("ready"))
         self._refresh_file_target_list()
@@ -1804,6 +972,153 @@ class ConverterApp:
 
         self.file_count_var.set(self.tr("file_count_estimate", count=count))
 
+    # -- backend settings ------------------------------------------------
+    def _transport_label_map(self):
+        return {
+            config.TRANSPORT_AUTO: self.tr("transport_auto"),
+            config.TRANSPORT_UPLOAD: self.tr("transport_upload"),
+            config.TRANSPORT_SHARE: self.tr("transport_share"),
+        }
+
+    def _apply_transport_labels(self):
+        labels = self._transport_label_map()
+        self.ui["server_transport_combo"].configure(values=list(labels.values()))
+        self.transport_label_var.set(labels.get(self.server_transport_var.get(), labels[config.TRANSPORT_AUTO]))
+
+    def _on_transport_changed(self, _event=None):
+        chosen = self.transport_label_var.get()
+        for code, label in self._transport_label_map().items():
+            if label == chosen:
+                self.server_transport_var.set(code)
+                return
+
+    def use_remote_backend(self) -> bool:
+        return bool(self.use_remote_var.get()) or not IS_WINDOWS
+
+    def _apply_backend_mode(self):
+        """Show the server panel only when conversion happens remotely."""
+        remote = self.use_remote_backend()
+        frame = self.ui["server_frame"]
+        # winfo_ismapped() is false while the window is withdrawn, so ask the
+        # geometry manager whether the frame is in the layout at all.
+        packed = frame.winfo_manager() == "pack"
+        if remote and not packed:
+            frame.pack(fill="x", padx=12, pady=(0, 12), before=self.ui["actions_frame"])
+        elif not remote and packed:
+            frame.pack_forget()
+        state = "normal" if remote else "disabled"
+        for key in ("server_address_entry", "server_token_entry", "server_test_btn"):
+            self.ui[key].configure(state=state)
+        self.ui["server_transport_combo"].configure(state="readonly" if remote else "disabled")
+        if "job_timeout_check" in self.ui:
+            self._apply_timeout_state()
+        if "notes_label" in self.ui:
+            self.ui["notes_label"].configure(
+                text=self.tr("notes_remote" if remote else "notes")
+            )
+
+    def _apply_timeout_state(self):
+        """The number only matters when the option is on, and only locally."""
+        remote = self.use_remote_backend()
+        enabled = bool(self.job_timeout_var.get()) and not remote
+        self.ui["job_timeout_entry"].configure(state="normal" if enabled else "disabled")
+        self.ui["job_timeout_check"].configure(state="disabled" if remote else "normal")
+        if "job_timeout_note" in self.ui:
+            self.ui["job_timeout_note"].configure(
+                text=self.tr("job_timeout_remote_note") if remote else ""
+            )
+
+    def job_timeout_seconds(self):
+        """Seconds for the local engine watchdog, or None when disabled."""
+        if self.use_remote_backend() or not self.job_timeout_var.get():
+            return None
+        try:
+            minutes = int(float(self.job_timeout_minutes_var.get()))
+        except (TypeError, ValueError):
+            return None
+        return minutes * 60 if minutes > 0 else None
+
+    def backend_settings(self):
+        if not self.use_remote_backend():
+            return {"url": "", "token": "", "transport": config.TRANSPORT_AUTO, "shares": []}
+        return {
+            "url": self.server_url_var.get().strip(),
+            "token": self.server_token_var.get().strip(),
+            "transport": self.server_transport_var.get(),
+            "shares": self.settings["server"].get("shares", []),
+        }
+
+    # -- settings persistence --------------------------------------------
+    def _schedule_save_settings(self, *_args):
+        if self._save_settings_job is not None:
+            try:
+                self.root.after_cancel(self._save_settings_job)
+            except Exception:
+                pass
+        self._save_settings_job = self.root.after(500, self._save_settings)
+
+    def _save_settings(self):
+        self._save_settings_job = None
+        formats = []
+        if self.output_pdf_var.get():
+            formats.append("PDF")
+        if self.output_docx_var.get():
+            formats.append("DOCX")
+
+        self.settings["language"] = self.lang()
+        self.settings["last_target"] = self.folder_var.get().strip()
+        self.settings["options"] = {
+            "recursive": bool(self.recursive_var.get()),
+            "overwrite": bool(self.overwrite_var.get()),
+            "safe_temp": bool(self.use_safe_copy_var.get()),
+            "force_one_page": bool(self.force_one_page_var.get()),
+            "formats": formats or ["PDF"],
+            "job_timeout_enabled": bool(self.job_timeout_var.get()),
+            "job_timeout_minutes": self._timeout_minutes(),
+        }
+        self.settings["server"].update({
+            "url": self.server_url_var.get().strip(),
+            "token": self.server_token_var.get().strip(),
+            "transport": self.server_transport_var.get(),
+        })
+        config.save(self.settings)
+
+    def _timeout_minutes(self) -> int:
+        try:
+            return max(1, int(float(self.job_timeout_minutes_var.get())))
+        except (TypeError, ValueError):
+            return config.DEFAULTS["options"]["job_timeout_minutes"]
+
+    def _on_close(self):
+        self._save_settings()
+        self.root.destroy()
+
+    # -- connection test --------------------------------------------------
+    def test_server_connection(self):
+        if self.server_test_running:
+            return
+        url = self.server_url_var.get().strip()
+        if not url:
+            self.server_status_var.set(self.tr("server_test_failed", detail=self.tr("server_not_configured")))
+            return
+        self.server_test_running = True
+        self.server_status_var.set(self.tr("server_test_running"))
+        threading.Thread(
+            target=self._server_test_worker,
+            args=(self.backend_settings(), self.lang()),
+            daemon=True,
+        ).start()
+
+    def _server_test_worker(self, server, lang):
+        from hwp2pdf.backends.remote_http import RemoteHttpBackend
+
+        try:
+            backend = RemoteHttpBackend(server)
+            backend.preflight(lang)
+            self.log_queue.put(("server_test", (True, backend.capabilities_payload)))
+        except Exception as e:
+            self.log_queue.put(("server_test", (False, str(e))))
+
     def open_selected_folder(self):
         target = self.folder_var.get().strip()
         if self.selected_files:
@@ -1814,9 +1129,9 @@ class ConverterApp:
                 else self.selected_files[0]
             )
         if target and os.path.isfile(target):
-            os.startfile(str(Path(target).parent))
+            reveal_in_file_manager(str(Path(target).parent))
         elif target and os.path.isdir(target):
-            os.startfile(target)
+            reveal_in_file_manager(target)
         else:
             messagebox.showwarning(APP_TITLE, self.tr("invalid_open_target"))
 
@@ -1878,6 +1193,21 @@ class ConverterApp:
                             self.tr("csv_log", path=log_csv),
                             "warning",
                         )
+
+                elif kind == "server_test":
+                    ok, detail = payload
+                    self.server_test_running = False
+                    if ok:
+                        self.server_status_var.set(self.tr(
+                            "server_test_ok",
+                            version=detail.get("version", "?"),
+                            hwp=self.tr(
+                                "server_hwp_ok" if detail.get("hwp_installed") else "server_hwp_missing"
+                            ),
+                            queue=detail.get("queue_depth", 0),
+                        ))
+                    else:
+                        self.server_status_var.set(self.tr("server_test_failed", detail=detail))
 
                 elif kind == "error":
                     self.is_running = False
@@ -2157,6 +1487,47 @@ class ConverterApp:
         except Exception as e:
             self.log_queue.put(("update_done", ("error", "", "", "", str(e))))
 
+    def _confirm_local_engine_ready(self) -> bool:
+        ok, detail = ensure_pywin32()
+        if not ok:
+            messagebox.showerror(APP_TITLE, self.tr("pywin32_missing", detail=detail))
+            return False
+
+        hwp_processes = get_hwp_processes()
+        if hwp_processes:
+            process_detail = ", ".join(f"PID {process['pid']}" for process in hwp_processes)
+            answer = messagebox.askyesnocancel(
+                APP_TITLE,
+                self.tr("hwp_running_prompt", process_detail=process_detail),
+            )
+            if answer is None:
+                return False
+            if answer is True:
+                hwp_processes = get_hwp_processes()
+                if not hwp_processes:
+                    self.append_log(self.tr("hwp_closed_already"))
+                elif not kill_hwp():
+                    hwp_processes = get_hwp_processes()
+                    if not hwp_processes:
+                        self.append_log(self.tr("hwp_closed_already"))
+                    else:
+                        messagebox.showerror(
+                            APP_TITLE,
+                            self.tr("hwp_kill_failed"),
+                        )
+                        return False
+                else:
+                    hwp_processes = get_hwp_processes()
+                    if hwp_processes:
+                        process_detail = ", ".join(f"PID {process['pid']}" for process in hwp_processes)
+                        messagebox.showerror(
+                            APP_TITLE,
+                            self.tr("hwp_kill_failed") + f"\n\n{process_detail}",
+                        )
+                        return False
+
+        return True
+
     def start_conversion(self):
         if self.is_running:
             messagebox.showwarning(APP_TITLE, self.tr("already_running"))
@@ -2187,46 +1558,16 @@ class ConverterApp:
             messagebox.showerror(APP_TITLE, self.tr("select_output"))
             return
 
-        ok, detail = ensure_pywin32()
-        if not ok:
-            messagebox.showerror(
-                APP_TITLE,
-                self.tr("pywin32_missing", detail=detail),
-            )
+        try:
+            backend = create_backend(self.backend_settings(), self.lang())
+        except BackendUnavailable as e:
+            messagebox.showerror(APP_TITLE, str(e))
             return
 
-        hwp_processes = get_hwp_processes()
-        if hwp_processes:
-            process_detail = ", ".join(f"PID {process['pid']}" for process in hwp_processes)
-            answer = messagebox.askyesnocancel(
-                APP_TITLE,
-                self.tr("hwp_running_prompt", process_detail=process_detail),
-            )
-            if answer is None:
-                return
-            if answer is True:
-                hwp_processes = get_hwp_processes()
-                if not hwp_processes:
-                    self.append_log(self.tr("hwp_closed_already"))
-                elif not kill_hwp():
-                    hwp_processes = get_hwp_processes()
-                    if not hwp_processes:
-                        self.append_log(self.tr("hwp_closed_already"))
-                    else:
-                        messagebox.showerror(
-                            APP_TITLE,
-                            self.tr("hwp_kill_failed"),
-                        )
-                        return
-                else:
-                    hwp_processes = get_hwp_processes()
-                    if hwp_processes:
-                        process_detail = ", ".join(f"PID {process['pid']}" for process in hwp_processes)
-                        messagebox.showerror(
-                            APP_TITLE,
-                            self.tr("hwp_kill_failed") + f"\n\n{process_detail}",
-                        )
-                        return
+        # Only the local COM engine cares about pywin32 and stray Hwp.exe; a
+        # remote server reports its own problems through the conversion log.
+        if backend.capabilities.manages_hwp_process and not self._confirm_local_engine_ready():
+            return
 
         self.stop_requested = False
         self.is_running = True
@@ -2248,6 +1589,8 @@ class ConverterApp:
                 self.force_one_page_var.get(),
                 output_formats,
                 lang,
+                self.backend_settings(),
+                self.job_timeout_seconds(),
             ),
             daemon=True,
         )
@@ -2261,424 +1604,70 @@ class ConverterApp:
             formats.append("DOCX")
         return tuple(formats)
 
-    @staticmethod
-    def collect_files(target: str, recursive: bool):
-        root = Path(target)
-        allowed_extensions = enabled_extensions()
-        if root.is_file():
-            return [root] if root.suffix.lower() in allowed_extensions else []
-
-        iterator = root.rglob("*") if recursive else root.glob("*")
-        files = []
-        for path in iterator:
-            if path.is_file() and path.suffix.lower() in allowed_extensions:
-                files.append(path)
-        return files
+    collect_files = staticmethod(collect_files)
 
     def _run_conversion(
         self,
-        target: str | tuple[str, ...],
+        target: "str | tuple[str, ...]",
         recursive: bool,
         overwrite: bool,
         use_safe_copy: bool,
         force_one_page: bool,
         output_formats,
         lang: str,
+        backend_settings=None,
+        job_timeout=None,
     ):
+        # Tk variables may only be read on the main thread, so the caller
+        # resolves the backend settings before starting this worker.
+        if backend_settings is None:
+            backend_settings = getattr(self, "backend_settings", None)
+            if callable(backend_settings):
+                backend_settings = None
         try:
-            self.log_queue.put(("log", translate(lang, "scanning")))
-            if isinstance(target, (tuple, list)):
-                allowed_extensions = enabled_extensions()
-                files = [
-                    Path(path)
-                    for path in target
-                    if Path(path).is_file()
-                    and Path(path).suffix.lower() in allowed_extensions
-                ]
-                log_root = files[0].parent if files else Path.cwd()
-            else:
-                target_path = Path(target)
-                files = self.collect_files(target, recursive)
-                log_root = target_path.parent if target_path.is_file() else target_path
-            total_files = len(files)
-            total_jobs = total_files * len(output_formats)
-            extension_label = ", ".join(ext.upper() for ext in enabled_extensions())
-            if total_files == 0:
-                self.log_queue.put(("error", translate(lang, "no_files", extensions=extension_label)))
-                return
+            backend = create_backend(backend_settings, lang)
+        except BackendUnavailable as e:
+            self.log_queue.put(("error", str(e)))
+            return
 
-            log_csv = str(log_root / "hwp2pdf_log.csv")
-            success = 0
-            failed = 0
-            skipped = 0
-            stopped = False
+        if job_timeout and hasattr(backend, "job_timeout"):
+            backend.job_timeout = job_timeout
 
-            import pythoncom
-            import win32com.client
-
-            self.log_queue.put(("log", translate(lang, "init_com")))
-            pythoncom.CoInitialize()
-            hwp = None
-
-            try:
-                TEMP_WORKDIR.mkdir(parents=True, exist_ok=True)
-
-                self.log_queue.put(("log", translate(lang, "start_hwp")))
-                hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
-                self.log_queue.put(("log", translate(lang, "hwp_started")))
-                global_message_box_mode = None
-                dialog_watcher = None
-                try:
-                    hwp.XHwpWindows.Item(0).Visible = False
-                except Exception:
-                    pass
-                try:
-                    _enabled, global_message_box_mode, _detail = enable_auto_confirm_message_boxes(hwp)
-                except Exception:
-                    global_message_box_mode = None
-                try:
-                    dialog_watcher = HancomDialogWatcher(hwp_process_id(hwp))
-                    dialog_watcher.start()
-                except Exception:
-                    dialog_watcher = None
-
-                self.log_queue.put(("log", translate(lang, "register_security")))
-                self_register_state, self_register_detail = ensure_hwp_security_module_registered()
-                if self_register_state == "registered":
-                    self.log_queue.put(
-                        ("log", translate(lang, "security_self_registered", detail=self_register_detail))
-                    )
-                elif self_register_state == "bundled-missing":
-                    self.log_queue.put(
-                        (
-                            "log",
-                            (
-                                translate(lang, "security_bundle_missing", detail=self_register_detail),
-                                "warning",
-                            ),
-                        )
-                    )
-                elif self_register_state.startswith("error"):
-                    self.log_queue.put(
-                        (
-                            "log",
-                            (
-                                translate(
-                                    lang,
-                                    "security_self_register_failed",
-                                    state=self_register_state,
-                                    detail=self_register_detail,
-                                ),
-                                "warning",
-                            ),
-                        )
-                    )
-                security_ok, security_detail = register_hwp_security_module(hwp)
-
-                on_label = translate(lang, "on")
-                off_label = translate(lang, "off")
-                self.log_queue.put(("log", translate(lang, "found_files", count=total_files, extensions=extension_label)))
-                self.log_queue.put(("log", translate(lang, "csv_log", path=log_csv)))
-                self.log_queue.put(("log", translate(lang, "safe_temp_mode", state=on_label if use_safe_copy else off_label)))
-                self.log_queue.put(
-                    ("log", translate(lang, "force_one_page_mode", state=on_label if force_one_page else off_label))
-                )
-                self.log_queue.put(("log", translate(lang, "output_formats", formats=", ".join(output_formats))))
-                self.log_queue.put(("log", translate(lang, "auto_confirm_docx")))
-                security_msg = on_label if security_ok else f"{off_label} ({security_detail or translate(lang, 'module_unavailable')})"
-                self.log_queue.put(("log", translate(lang, "security_module", state=security_msg)))
-
-                with open(log_csv, "w", newline="", encoding="utf-8-sig") as f:
-                    writer = csv.writer(f)
-                    writer.writerow(
-                        [
-                            translate(lang, "status_header"),
-                            translate(lang, "source_header"),
-                            translate(lang, "output_header"),
-                            translate(lang, "message_header"),
-                        ]
-                    )
-
-                    job_index = 0
-                    for file_index, src_path in enumerate(files, start=1):
-                        src_path = Path(src_path)
-                        fmt = src_path.suffix.replace(".", "").upper()
-
-                        self.log_queue.put(("log", translate(lang, "processing", path=src_path)))
-
-                        for output_format in output_formats:
-                            if self.stop_requested:
-                                writer.writerow(["STOPPED", "", "", translate(lang, "stopped_csv")])
-                                self.log_queue.put(("log", (translate(lang, "stopped"), "warning")))
-                                stopped = True
-                                break
-
-                            job_index += 1
-                            output_ext = output_extension(output_format)
-                            output_path = src_path.with_suffix(output_ext)
-                            self.log_queue.put(
-                                (
-                                    "progress",
-                                    (
-                                        job_index - 1,
-                                        total_jobs,
-                                        translate(
-                                            lang,
-                                            "progress_convert",
-                                            current=job_index,
-                                            total=total_jobs,
-                                            name=src_path.name,
-                                            format=output_format,
-                                        ),
-                                    ),
-                                )
-                            )
-
-                            temp_input = None
-                            temp_output = None
-                            dialog_marker = dialog_watcher.mark() if dialog_watcher else 0
-
-                            try:
-                                if output_path.exists() and not overwrite:
-                                    try:
-                                        output_size = output_path.stat().st_size
-                                    except OSError:
-                                        output_size = 1
-
-                                    if output_size > 0:
-                                        skipped += 1
-                                        msg = translate(lang, "skipped_exists", format=output_format)
-                                        writer.writerow(["SKIPPED", str(src_path), str(output_path), msg])
-                                        self.log_queue.put(
-                                            (
-                                                "log",
-                                                (
-                                                    translate(
-                                                        lang, "skipped_log", format=output_format, path=output_path
-                                                    ),
-                                                    "warning",
-                                                ),
-                                            )
-                                        )
-                                        self.log_queue.put(
-                                            (
-                                                "progress",
-                                                (
-                                                    job_index,
-                                                    total_jobs,
-                                                    translate(
-                                                        lang, "progress_skipped", current=job_index, total=total_jobs
-                                                    ),
-                                                ),
-                                            )
-                                        )
-                                        continue
-
-                                    output_path.unlink()
-
-                                blocked_reason = blocked_conversion_reason(src_path, output_format, lang)
-                                if blocked_reason:
-                                    failed += 1
-                                    writer.writerow(["FAILED", str(src_path), str(output_path), blocked_reason])
-                                    self.log_queue.put(
-                                        (
-                                            "log",
-                                            (
-                                                translate(
-                                                    lang,
-                                                    "failed_log",
-                                                    format=output_format,
-                                                    path=src_path,
-                                                    message=blocked_reason,
-                                                ),
-                                                "error",
-                                            ),
-                                        )
-                                    )
-                                    self.log_queue.put(
-                                        (
-                                            "progress",
-                                            (
-                                                job_index,
-                                                total_jobs,
-                                                translate(lang, "progress_failed", current=job_index, total=total_jobs),
-                                            ),
-                                        )
-                                    )
-                                    continue
-
-                                if use_safe_copy:
-                                    temp_input = TEMP_WORKDIR / f"{file_index:05d}_{output_format}_{src_path.name}"
-                                    temp_output = TEMP_WORKDIR / f"{file_index:05d}_{output_format}_{src_path.stem}{output_ext}"
-
-                                    if temp_input.exists():
-                                        temp_input.unlink()
-                                    if temp_output.exists():
-                                        temp_output.unlink()
-
-                                    shutil.copy2(src_path, temp_input)
-                                    open_target = temp_input
-                                    save_target = temp_output
-                                else:
-                                    open_target = src_path
-                                    save_target = output_path
-
-                                if output_path.exists() and overwrite:
-                                    output_path.unlink()
-
-                                opened = hwp.Open(str(open_target), "", DEFAULT_OPEN_OPTION)
-                                if opened is False:
-                                    raise RuntimeError(translate(lang, "open_failed", format=fmt))
-
-                                if force_one_page:
-                                    force_one_page_view(hwp, lang)
-
-                                if force_one_page and output_format == "PDF":
-                                    actual_save_format, original_print_method = save_pdf_with_print_to_pdf(
-                                        hwp, save_target, lang
-                                    )
-                                    if is_nup_print_method(original_print_method):
-                                        self.log_queue.put(
-                                            (
-                                                "log",
-                                                translate(
-                                                    lang,
-                                                    "nup_print_reset",
-                                                    method=print_method_label(original_print_method, lang),
-                                                ),
-                                            )
-                                        )
-                                else:
-                                    actual_save_format = save_document_as(hwp, save_target, output_format, lang)
-
-                                if dialog_watcher:
-                                    blocking_message = dialog_watcher.blocking_message_since(dialog_marker)
-                                    if blocking_message:
-                                        raise RuntimeError(
-                                            translate(lang, "hancom_dialog_blocked", message=blocking_message)
-                                        )
-
-                                try:
-                                    hwp.Clear(1)
-                                except Exception:
-                                    pass
-
-                                if use_safe_copy:
-                                    if not temp_output.exists():
-                                        raise RuntimeError(translate(lang, "temp_missing", format=output_format))
-                                    shutil.move(str(temp_output), str(output_path))
-
-                                success += 1
-                                writer.writerow(["OK", str(src_path), str(output_path), ""])
-                                self.log_queue.put(
-                                    (
-                                        "log",
-                                        translate(
-                                            lang,
-                                            "ok_log",
-                                            format=output_format,
-                                            actual=actual_save_format,
-                                            path=output_path,
-                                        ),
-                                    )
-                                )
-
-                            except Exception as e:
-                                failed += 1
-                                failure_message = str(e)
-                                if dialog_watcher:
-                                    blocking_message = dialog_watcher.blocking_message_since(dialog_marker)
-                                    if blocking_message:
-                                        failure_message = translate(
-                                            lang, "hancom_dialog_blocked", message=blocking_message
-                                        )
-                                writer.writerow(["FAILED", str(src_path), str(output_path), failure_message])
-                                self.log_queue.put(
-                                    (
-                                        "log",
-                                        (
-                                            translate(
-                                                lang,
-                                                "failed_log",
-                                                format=output_format,
-                                                path=src_path,
-                                                message=failure_message,
-                                            ),
-                                            "error",
-                                        ),
-                                    )
-                                )
-                                try:
-                                    hwp.Clear(1)
-                                except Exception:
-                                    pass
-
-                            finally:
-                                for tmp in (temp_input, temp_output):
-                                    try:
-                                        if tmp and Path(tmp).exists():
-                                            Path(tmp).unlink()
-                                    except Exception:
-                                        pass
-
-                            self.log_queue.put(
-                                (
-                                    "progress",
-                                    (
-                                        job_index,
-                                        total_jobs,
-                                        translate(lang, "progress_done", current=job_index, total=total_jobs),
-                                    ),
-                                )
-                            )
-
-                        if self.stop_requested:
-                            stopped = True
-                            break
-
-            finally:
-                try:
-                    if "dialog_watcher" in locals() and dialog_watcher is not None:
-                        dialog_watcher.stop()
-                except Exception:
-                    pass
-                try:
-                    if hwp is not None and "global_message_box_mode" in locals():
-                        restore_message_box_mode(hwp, global_message_box_mode)
-                except Exception:
-                    pass
-                try:
-                    if hwp is not None:
-                        hwp.Quit()
-                except Exception:
-                    pass
-                pythoncom.CoUninitialize()
-
-            all_success = success == total_jobs and failed == 0 and skipped == 0 and not stopped
-            if all_success:
-                try:
-                    Path(log_csv).unlink()
-                except FileNotFoundError:
-                    pass
-                except Exception as e:
-                    all_success = False
-                    self.log_queue.put(("log", (translate(lang, "remove_log_failed", message=e), "warning")))
-
-            self.log_queue.put(("done", (success, failed, skipped, log_csv, all_success)))
-
-        except Exception as e:
-            self.log_queue.put(("error", translate(lang, "unexpected_error", message=e)))
+        run_batch(
+            self.log_queue,
+            backend,
+            target=target,
+            recursive=recursive,
+            overwrite=overwrite,
+            use_safe_copy=use_safe_copy,
+            force_one_page=force_one_page,
+            output_formats=output_formats,
+            lang=lang,
+            is_stopped=lambda: self.stop_requested,
+            file_collector=self.collect_files,
+        )
 
 
-def main():
+def main(initial_paths=()):
+    """Start the GUI, optionally with documents already selected.
+
+    ``initial_paths`` carries files handed over by the desktop -- on macOS a
+    Finder open lands here through argv emulation.
+    """
     try:
         root = TkinterDnD.Tk()
     except RuntimeError:
         root = tk.Tk()
     style = ttk.Style(root)
-    try:
-        style.theme_use("vista")
-    except Exception:
-        pass
-    ConverterApp(root)
+    available = set(style.theme_names())
+    for theme in ("aqua", "vista", "clam"):
+        if theme in available:
+            try:
+                style.theme_use(theme)
+                break
+            except Exception:
+                continue
+    app = ConverterApp(root)
+    if initial_paths:
+        app._set_file_targets((Path(path) for path in initial_paths), append=False)
     root.mainloop()

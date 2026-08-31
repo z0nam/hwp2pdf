@@ -1,3 +1,7 @@
+param(
+    [string]$Version = ""
+)
+
 $ErrorActionPreference = "Stop"
 
 $Root = Split-Path -Parent $PSScriptRoot
@@ -56,28 +60,20 @@ if (Test-Path $LegacyZipPath) {
     Remove-Item -LiteralPath $LegacyZipPath -Force
 }
 
-$DatePart = Get-Date -Format "yyyy.MM.dd"
-$VersionPattern = "^hwp2pdf(?:-windows)?-$([regex]::Escape($DatePart))\.(\d+)(?:\.exe|\.zip)$"
-$ExistingNumbers = @()
-
-foreach ($Dir in @((Join-Path $Root "dist"), $ReleaseDir)) {
-    if (Test-Path $Dir) {
-        Get-ChildItem -LiteralPath $Dir -File | ForEach-Object {
-            if ($_.Name -match $VersionPattern) {
-                $ExistingNumbers += [int]$Matches[1]
-            }
-        }
-    }
+# Version numbering lives in scripts/set_version.py so the Windows and macOS
+# builds can never disagree about what a given build is called. Pass -Version to
+# pin an explicit yyyy.MM.dd.N (used when both platforms build the same release).
+$SetVersionScript = Join-Path $Root "scripts\set_version.py"
+if ($Version) {
+    $Version = (& $Python $SetVersionScript $Version | Select-Object -Last 1).ToString().Trim()
 }
-
-$BuildNumber = 1
-if ($ExistingNumbers.Count -gt 0) {
-    $BuildNumber = ($ExistingNumbers | Measure-Object -Maximum).Maximum + 1
+else {
+    $Version = (& $Python $SetVersionScript | Select-Object -Last 1).ToString().Trim()
 }
-
-$Version = "$DatePart.$BuildNumber"
-$VersionFile = Join-Path $Root "src\hwp2pdf\version.py"
-Set-Content -LiteralPath $VersionFile -Value "__version__ = `"$Version`"" -Encoding utf8
+if ($LASTEXITCODE -ne 0 -or -not $Version) {
+    throw "Failed to compute build version"
+}
+Write-Host "Build version: $Version"
 
 Invoke-Native $Python @("-m", "pip", "install", "--upgrade", "pip")
 Invoke-Native $Python @("-m", "pip", "install", "-r", (Join-Path $Root "requirements-build.txt"))
@@ -93,19 +89,28 @@ if (-not (Test-Path $DistCliExe)) {
     throw "Expected CLI build output not found: $DistCliExe"
 }
 
+$DistServeExe = Join-Path $Root "dist\hwp2pdf-serve.exe"
+if (-not (Test-Path $DistServeExe)) {
+    throw "Expected server build output not found: $DistServeExe"
+}
+
 $VersionedExe = Join-Path $Root "dist\hwp2pdf-$Version.exe"
 $VersionedCliExe = Join-Path $Root "dist\hwp2pdf-cli-$Version.exe"
+$VersionedServeExe = Join-Path $Root "dist\hwp2pdf-serve-$Version.exe"
 $ZipPath = Join-Path $ReleaseDir "hwp2pdf-windows-$Version.zip"
 
 Move-Item -LiteralPath $DistExe -Destination $VersionedExe -Force
 Move-Item -LiteralPath $DistCliExe -Destination $VersionedCliExe -Force
+Move-Item -LiteralPath $DistServeExe -Destination $VersionedServeExe -Force
 Compress-WithRetry -Path @(
     $VersionedExe,
     $VersionedCliExe,
+    $VersionedServeExe,
     (Join-Path $Root "THIRD_PARTY_NOTICES.md")
 ) -DestinationPath $ZipPath
 
 Write-Host "Version $Version"
 Write-Host "Built $VersionedExe"
 Write-Host "Built $VersionedCliExe"
+Write-Host "Built $VersionedServeExe"
 Write-Host "Built $ZipPath"

@@ -36,6 +36,10 @@ a_gui = Analysis(
         "_tkinter", "pythoncom", "pywintypes",
         "win32com", "win32com.client",
         "win32gui", "win32con", "win32process",
+        "hwp2pdf.backends.remote_http",
+        "hwp2pdf.serve",
+        "hwp2pdf.server.http_server",
+        "hwp2pdf.server.jobs",
     ],
     hookspath=[str(ROOT)],
     hooksconfig={},
@@ -76,6 +80,10 @@ a_cli = Analysis(
         "pythoncom", "pywintypes",
         "win32com", "win32com.client",
         "win32gui", "win32con", "win32process",
+        "hwp2pdf.backends.remote_http",
+        "hwp2pdf.serve",
+        "hwp2pdf.server.http_server",
+        "hwp2pdf.server.jobs",
     ],
     hookspath=[str(ROOT)],
     hooksconfig={},
@@ -104,4 +112,50 @@ cli_exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+)
+
+# The conversion server runs unattended for hours in a logged-in desktop
+# session. A console build shows a window on that desktop, and closing it kills
+# the server (STATUS_CONTROL_C_EXIT) with no other symptom than the client
+# failing to connect later -- so it is built windowless and logs to a file.
+a_serve = Analysis(
+    ["src/hwp2pdf/serve.py"],
+    pathex=[str(ROOT / "src")],
+    binaries=[],
+    datas=SECURITY_DLL_DATAS,
+    hiddenimports=[
+        "pythoncom", "pywintypes",
+        "win32com", "win32com.client",
+        "win32gui", "win32con", "win32process",
+        "hwp2pdf.server.http_server",
+        "hwp2pdf.server.jobs",
+    ],
+    hookspath=[str(ROOT)],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=["tkinter", "tkinterdnd2"],
+    noarchive=False,
+    optimize=0,
+)
+pyz_serve = PYZ(a_serve.pure)
+
+serve_exe = EXE(
+    pyz_serve,
+    a_serve.scripts,
+    a_serve.binaries,
+    a_serve.datas,
+    [],
+    exclude_binaries=False,
+    name="hwp2pdf-serve",
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=str(ICON) if ICON.exists() else None,
 )

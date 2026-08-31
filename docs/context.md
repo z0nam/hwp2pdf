@@ -2,8 +2,10 @@
 
 ## 1. Project Overview
 
-`hwp2pdf` is a Windows desktop converter for documents handled by Hancom Office Hangul.
-It automates `HWPFrame.HwpObject` through COM and saves HWP/HWPX files as PDF or DOCX.
+`hwp2pdf` is a desktop converter for documents handled by Hancom Office Hangul.
+On Windows it automates `HWPFrame.HwpObject` through COM and saves HWP/HWPX files as PDF or DOCX.
+On macOS the same GUI runs against a Windows conversion server, because Hancom Office for Mac
+exposes neither an AppleScript dictionary nor a command-line conversion entry point.
 
 Primary scope:
 
@@ -18,16 +20,49 @@ DOCX output depends on Hancom Office's DOCX export fidelity.
 ## 2. Current Architecture
 
 ```text
-Tkinter GUI
-  -> background worker thread
-  -> pywin32 COM bridge
-  -> HWPFrame.HwpObject
-  -> Open(input)
-  -> SaveAs(output, selected format)
+Tkinter GUI  ─┐
+CLI          ─┼─► jobs.run_batch(sink, backend, ...)
+              │      file discovery, skip/overwrite, CSV log, progress, stop
+              │      │
+              │      ├─ backends/windows_com.py   pywin32 -> HWPFrame.HwpObject
+              │      └─ backends/remote_http.py   HTTP client
+              │                  │
+              └──────────────────┴──► [Windows host] hwp2pdf-cli serve
+                                          single worker queue -> WindowsComBackend
 ```
 
-The application is packaged as a Python module under `src/hwp2pdf`.
-The older `src/hwp_pdf_converter_app_safe.py` path remains as a compatibility entrypoint.
+`jobs.run_batch` owns everything that depends on the destination filesystem, so the local and the
+remote paths produce identical logs, CSV rows and progress events. A backend owns only "open this
+file and save it as that format":
+
+```python
+backend.preflight(lang)                 # raise BackendUnavailable
+backend.open_session(sink, lang, opts)  # start the engine / create the remote job
+backend.blocked_reason(src, fmt, lang)  # HWP FileHeader preflight, or None
+backend.convert(JobSpec) -> JobResult   # never raises for per-file failures
+backend.cancel(); backend.close_session()
+```
+
+Module map under `src/hwp2pdf`:
+
+| Module | Role |
+|---|---|
+| `app.py` | tkinter GUI (`ConverterApp`, `ModernGradientButton`) |
+| `cli.py` | command line entry; dispatches `serve` before touching the GUI |
+| `jobs.py` | `collect_files` + `run_batch` |
+| `backends/base.py` | `ConversionBackend` protocol, `JobSpec`, `JobResult` |
+| `backends/windows_com.py` | the whole COM engine, dialog watcher and security module |
+| `backends/remote_http.py` | HTTP client backend |
+| `server/` | `protocol.py` (wire contract), `jobs.py` (job store + single worker), `http_server.py` |
+| `serve.py` | `hwp2pdf serve` argument parsing, bind resolution, token handling |
+| `i18n.py` `constants.py` `paths.py` `config.py` `updater.py` | strings, constants, platform paths, `settings.json`, release checks |
+
+Only `app.py` imports tkinter, so the CLI and the conversion server stay GUI-free.
+The older `src/hwp_pdf_converter_app_safe.py` path remains as a compatibility entrypoint, and
+`app.py` re-exports the engine helper names it used to define.
+
+The wire contract is documented in [protocol.md](protocol.md); setup instructions are in
+[remote-server.md](remote-server.md).
 
 ## 3. Current Feature Set
 
@@ -153,7 +188,18 @@ Then build:
 
 ```powershell
 .\scripts\build_windows.ps1
+.\scripts\build_windows.ps1 -Version 2026.08.28.3   # pin a version
 ```
+
+On macOS:
+
+```bash
+./scripts/check_macos.sh
+./scripts/build_macos.sh
+```
+
+Both platforms compute `yyyy.MM.dd.N` with `scripts/set_version.py`, which also writes
+`src/hwp2pdf/version.py`.
 
 Expected outputs:
 
@@ -162,6 +208,8 @@ Expected outputs:
 - `release/hwp2pdf-windows-YYYY.MM.DD.N.zip`
 - `release/hwp2pdf-setup-YYYY.MM.DD.N.exe` when Inno Setup 6 is installed and
   `scripts/build_installer.ps1` is run
+- `dist/hwp2pdf.app`, `dist/hwp2pdf-cli` and
+  `release/hwp2pdf-macos-<arch>-YYYY.MM.DD.N.zip` from `scripts/build_macos.sh`
 
 Versioned build numbers use the build date and the sequence number for that date, for example
 `hwp2pdf-2026.04.25.1.exe`.
@@ -215,11 +263,37 @@ install/register the automation security approval module and then call `Register
 ### Concurrency
 
 Parallel conversion is not recommended. Use one HWP COM process and convert files sequentially.
+The conversion server enforces this with a single worker thread that owns the COM apartment;
+work beyond `--max-queue` is rejected with `429`.
+
+### Conversion Server Must Not Be A Windows Service
+
+Hangul COM automation needs an interactive desktop session. Registering `serve` as a Windows
+Service puts it in Session 0, which has no desktop and leaves zombie `Hwp.exe` processes behind
+(see known-issues.md). Use a Scheduled Task with "run only when user is logged on".
+
+### Hung Conversions
+
+A single file can wedge Hangul behind a modal dialog the watcher does not
+recognise. `WindowsComBackend(job_timeout=...)` starts a watchdog that force
+closes Hangul and restarts the engine, so the batch continues with the next
+file. It is off by default for local desktop runs (a large document legitimately
+takes minutes) and on by default on the server, where one stuck job would block
+every client.
+
+### Remote Mode Limitations
+
+- The HWP FileHeader preflight (password / distribution document) runs on the server, so a blocked
+  file is reported as a normal failed item rather than being skipped before any transfer.
+- Plain HTTP is the default. It is fine over Tailscale (WireGuard already encrypts) but is
+  cleartext on a LAN; use `--tls-cert`/`--tls-key` or `tailscale serve` if that matters.
 
 ## 10. Future Work
 
-- CLI mode in addition to the GUI
 - Retry queue for failed files
-- Per-file timeout and hung process recovery
+- Expose the per-file timeout in the GUI (it exists as `--timeout` / `--job-timeout`)
+- Dismiss the Hancom dialog that still hangs DOCX export (known-issues.md #1);
+  the timeout recovers from it but does not prevent it
 - Watch-folder mode
-- Windows conversion server/API for Mac/Linux clients
+- Keep one Hangul session alive across back-to-back server jobs
+- macOS Keychain storage for the server token

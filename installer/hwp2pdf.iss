@@ -32,6 +32,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 Source: "{#AppRoot}\dist\hwp2pdf-{#AppVersion}.exe"; DestDir: "{app}"; DestName: "hwp2pdf.exe"; Flags: ignoreversion
 Source: "{#AppRoot}\dist\hwp2pdf-cli-{#AppVersion}.exe"; DestDir: "{app}"; DestName: "hwp2pdf-cli.exe"; Flags: ignoreversion
+Source: "{#AppRoot}\dist\hwp2pdf-serve-{#AppVersion}.exe"; DestDir: "{app}"; DestName: "hwp2pdf-serve.exe"; Flags: ignoreversion
 Source: "{#AppRoot}\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#AppRoot}\vendor\x86\FilePathCheckerModule.dll"; DestDir: "{app}\vendor\x86"; Flags: ignoreversion
 Source: "{#AppRoot}\vendor\x64\FilePathCheckerModule.dll"; DestDir: "{app}\vendor\x64"; Flags: ignoreversion
@@ -46,6 +47,11 @@ Root: HKCU; Subkey: "Software\HNC\HwpAutomation\Modules"; ValueType: string; Val
 [Icons]
 Name: "{group}\hwp2pdf"; Filename: "{app}\hwp2pdf.exe"
 Name: "{group}\hwp2pdf CLI"; Filename: "{app}\hwp2pdf-cli.exe"
+; Conversion server for macOS/Linux clients. Windowless on purpose: there is no
+; console window to close by accident, and it logs to %LOCALAPPDATA%\hwp2pdf\server.log.
+; It runs in this logged-in desktop session -- Hangul automation does not work
+; as a Windows Service.
+Name: "{group}\hwp2pdf 변환 서버 (Conversion Server)"; Filename: "{app}\hwp2pdf-serve.exe"; Parameters: "--bind tailscale --init"
 Name: "{group}\Uninstall hwp2pdf"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\hwp2pdf"; Filename: "{app}\hwp2pdf.exe"; Tasks: desktopicon
 

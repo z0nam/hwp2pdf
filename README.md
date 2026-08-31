@@ -1,8 +1,11 @@
 ﻿# hwp2pdf
 
 Windows + Hancom Office COM 자동화를 사용하는 HWP/HWPX -> PDF/DOCX GUI/CLI 변환기입니다.
+macOS에서는 같은 앱이 한컴오피스가 설치된 Windows **변환 서버**에 붙어서 동작합니다.
 
-This is a Windows GUI/CLI converter that uses Hancom Office COM automation to convert HWP/HWPX files to PDF or DOCX.
+This is a GUI/CLI converter that uses Hancom Office COM automation to convert HWP/HWPX files to
+PDF or DOCX. On Windows it drives the locally installed Hancom Office; on macOS the same app talks
+to a Windows **conversion server** over HTTP.
 
 ## 주요 기능 / Features
 
@@ -17,6 +20,8 @@ This is a Windows GUI/CLI converter that uses Hancom Office COM automation to co
 - 한컴 확인/오류 대화상자 자동 확인 후 실패 파일은 로그에 기록
 - 안전한 임시 폴더 변환 모드
 - 변환 결과 CSV 로그 생성
+- macOS 앱: Windows 변환 서버(Tailscale/LAN/VM)에 연결해 동일한 UI로 변환
+- Windows 변환 서버 모드(`hwp2pdf-cli serve`)와 공유 폴더 경로 전달 지원
 
 - Convert one HWP/HWPX file or batch convert a folder to PDF or DOCX
 - GUI and command-line CLI support
@@ -29,6 +34,8 @@ This is a Windows GUI/CLI converter that uses Hancom Office COM automation to co
 - Auto-confirm Hancom confirmation/error dialogs and log failed files
 - Safe temporary local conversion mode
 - CSV conversion log
+- macOS app that converts through a Windows conversion server over Tailscale, LAN or a local VM
+- Windows conversion server mode (`hwp2pdf-cli serve`) with optional shared-folder passthrough
 
 ## 프로젝트 정보 / Project Info
 
@@ -46,17 +53,41 @@ This is a Windows GUI/CLI converter that uses Hancom Office COM automation to co
 
 ## 요구 사항 / Requirements
 
+**Windows (로컬 변환)**
+
 - Windows
 - 한컴오피스 한글 설치
 - 일반 사용자는 Python 설치가 필요 없습니다. 배포용 zip에 포함된 `hwp2pdf.exe`를 실행하면 됩니다.
+
+**macOS (원격 변환)**
+
+- macOS 11 이상
+- 한컴오피스가 설치된 Windows 컴퓨터에서 `hwp2pdf-cli serve` 실행 중일 것
+  (설정 방법: [docs/remote-server.md](docs/remote-server.md))
+- mac에 설치된 한컴오피스(HwpMac2014 등)는 사용하지 않습니다 — AppleScript 사전도
+  CLI 변환 진입점도 없어 자동화가 불가능합니다.
+
+**Windows (local conversion)**
 
 - Windows
 - Hancom Office Hangul installed
 - Normal users do not need to install Python. Run `hwp2pdf.exe` from the distributed zip package.
 
-개발자 또는 소스 실행 사용자는 Python 3.10+ 및 `pywin32`가 필요합니다.
+**macOS (remote conversion)**
 
-Developers or source users need Python 3.10+ and `pywin32`.
+- macOS 11 or newer
+- A Windows machine with Hancom Office running `hwp2pdf-cli serve`
+  (see [docs/remote-server.md](docs/remote-server.md))
+- A locally installed Hancom Office for Mac is *not* used: it exposes neither an AppleScript
+  dictionary nor a command-line conversion entry point, so it cannot be automated.
+
+개발자 또는 소스 실행 사용자는 Python 3.10+가 필요합니다. Windows에서는 `pywin32`,
+macOS에서는 Tk 8.6 이상을 갖춘 파이썬(python.org 빌드 또는 `brew install python-tk@3.13`)이 필요합니다.
+Apple 기본 `/usr/bin/python3`는 Tk 8.5라 화면이 깨집니다.
+
+Developers or source users need Python 3.10+. On Windows that means `pywin32`; on macOS it means a
+Python with Tk 8.6 or newer (a python.org build, or `brew install python-tk@3.13`). Apple's
+`/usr/bin/python3` ships Tk 8.5 and renders badly.
 
 한컴 COM 등록이 깨진 경우 관리자 권한 셸에서 Hancom의 `Hwp.exe -regserver`를 한 번 실행하세요.
 
@@ -71,6 +102,11 @@ If COM registration fails, run Hancom's `Hwp.exe -regserver` once from an elevat
 - Python 3.12.10 build environment
 - pywin32 311
 - Hancom Office Hangul installed with `HWPFrame.HwpObject` COM automation available
+
+macOS 클라이언트 / macOS client:
+
+- macOS 26 (Apple Silicon), Tcl/Tk 9.0, tkinterdnd2 drag and drop working
+- Conversion server reached over Tailscale
 
 The current release was tested for launch and basic GUI behavior in the environment above.
 
@@ -136,6 +172,47 @@ the new version. Diagnostic logs are stored in
 
 The current release files are not signed with a code signing certificate. Windows SmartScreen or browser warnings may appear. Using an installer improves the installation experience, but it does not fully remove these warnings without code signing. Run the app only when you trust the source.
 
+## macOS 앱 / macOS App
+
+macOS에는 자동화 가능한 한컴 엔진이 없습니다. mac 앱은 **한컴오피스가 설치된 Windows
+변환 서버**에 붙어 동작하며, 파일 목록·건너뛰기 판정·CSV 로그·진행률·중지는 전부 mac에
+남고 서버는 문서 변환만 담당합니다. 결과 파일은 원본 옆(또는 지정한 위치)에 그대로 저장됩니다.
+
+1. Windows에서 서버를 켭니다 — `hwp2pdf-cli.exe serve --bind tailscale --init`
+2. 출력된 토큰을 복사합니다.
+3. mac에서 `hwp2pdf.app`을 실행하고 `변환 서버` 칸에 주소와 토큰을 넣습니다.
+4. `연결 테스트`로 서버 버전과 한글 설치 여부를 확인합니다.
+5. 평소처럼 폴더를 고르고 `변환 시작`을 누릅니다.
+
+Tailscale · LAN · mac 안의 Windows VM별 상세 설정과 문제 해결은
+**[docs/remote-server.md](docs/remote-server.md)** 를 보세요.
+프로토콜 명세는 [docs/protocol.md](docs/protocol.md)에 있습니다.
+
+### 첫 실행 / First launch
+
+배포되는 `.app`은 ad-hoc 서명만 되어 있고 Apple 공증(notarization)을 받지 않았습니다.
+처음 열 때 Gatekeeper 경고가 뜨면 앱을 **우클릭 → 열기**로 실행하거나:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/hwp2pdf.app
+```
+
+macOS has no automatable Hancom engine, so the mac app converts through a **Windows conversion
+server**. File discovery, skip rules, the CSV log, progress and stop all stay on the Mac; only the
+document conversion happens remotely, and outputs land exactly where they would locally.
+
+1. On Windows: `hwp2pdf-cli.exe serve --bind tailscale --init`
+2. Copy the token it prints.
+3. On the Mac, open `hwp2pdf.app` and fill in the `Conversion server` panel.
+4. Press *Test connection* to confirm the server version and that Hangul is present.
+5. Pick a folder and start the conversion as usual.
+
+See **[docs/remote-server.md](docs/remote-server.md)** for Tailscale, LAN and local-VM recipes plus
+troubleshooting, and [docs/protocol.md](docs/protocol.md) for the wire contract.
+
+The `.app` is ad-hoc signed and not notarized, so the first launch needs right-click -> Open, or
+`xattr -dr com.apple.quarantine /Applications/hwp2pdf.app`.
+
 ## 변환 방법 / How To Convert
 
 1. 폴더 전체를 변환하려면 **Browse folder...**로 변환 대상 폴더를 선택합니다. 파일 하나만 변환하려면 **Pick file...**로 `.hwp` 또는 `.hwpx` 파일을 선택합니다. Windows 탐색기에서 폴더나 HWP/HWPX 파일을 앱 창에 끌어다 놓아도 됩니다.
@@ -188,6 +265,44 @@ Main options:
 - `--no-force-one-page`: PDF 저장 전 한쪽 보기/모아찍기 해제 강제 적용 끄기
 - `--kill-hwp`: 실행 중인 아래한글 프로세스를 강제 종료하고 진행
 - `--allow-running-hwp`: 아래한글이 이미 실행 중이어도 그대로 진행
+- `--server`: Windows 변환 서버 주소 (예: `http://host:17650`). macOS에서는 필수
+- `--token`: 변환 서버 토큰
+- `--transport`: `auto` / `upload` / `share`
+
+원격 변환(macOS 또는 한컴이 없는 Windows):
+
+Remote conversion (macOS, or a Windows box without Hancom Office):
+
+```bash
+hwp2pdf ~/Documents/reports --pdf --docx \
+    --server http://namun-ji.<tailnet>.ts.net:17650 --token <token>
+
+# 환경변수로도 지정할 수 있습니다 / environment variables also work
+export HWP2PDF_SERVER_URL=http://namun-ji.<tailnet>.ts.net:17650
+export HWP2PDF_TOKEN=<token>
+hwp2pdf ~/Documents/reports --pdf
+```
+
+### 변환 서버 실행 / Running The Conversion Server
+
+한컴오피스가 설치된 Windows에서:
+
+On a Windows machine with Hancom Office installed:
+
+```powershell
+hwp2pdf-cli.exe serve --init                    # 토큰 생성 후 127.0.0.1:17650
+hwp2pdf-cli.exe serve --bind tailscale --init   # 테일넷에만 노출 (권장)
+hwp2pdf-cli.exe serve --bind 0.0.0.0 --init     # LAN (방화벽 규칙 필요)
+hwp2pdf-cli.exe serve --help
+```
+
+⚠️ Windows 서비스로 등록하지 마세요. 한글 자동화는 로그인된 대화형 세션이 필요합니다.
+자동 시작은 `scripts/install_serve_task.ps1`(작업 스케줄러)을 사용하세요.
+자세한 내용은 [docs/remote-server.md](docs/remote-server.md).
+
+Do not register it as a Windows Service: Hangul automation needs an interactive desktop session.
+Use `scripts/install_serve_task.ps1` for logon autostart. Details in
+[docs/remote-server.md](docs/remote-server.md).
 
 ## 소스에서 실행 / Run From Source
 
@@ -209,9 +324,27 @@ python -m hwp2pdf
 
 ## 빌드 / Build App
 
-생성된 `.exe` 파일은 저장소에 직접 커밋하지 않습니다. Windows PC 또는 CI에서 빌드한 뒤 `release/` 폴더의 zip 파일을 GitHub Releases 등으로 배포하세요.
+생성된 `.exe` / `.app` 파일은 저장소에 직접 커밋하지 않습니다. Windows PC 또는 CI에서 빌드한 뒤 `release/` 폴더의 zip 파일을 GitHub Releases 등으로 배포하세요.
 
-The repository should not commit generated `.exe` files. Build them locally or in CI and attach the generated zip from `release/` to a GitHub Release or other download channel.
+The repository should not commit generated `.exe` or `.app` files. Build them locally or in CI and attach the generated zip from `release/` to a GitHub Release or other download channel.
+
+### macOS
+
+```bash
+./scripts/check_macos.sh          # 파이썬 / Tk / 의존성 점검
+./scripts/build_macos.sh          # dist/hwp2pdf.app + release/hwp2pdf-macos-<arch>-<ver>.zip
+./scripts/build_macos.sh 2026.08.28.3   # 버전을 고정 (Windows 빌드와 맞출 때)
+```
+
+버전 번호는 두 플랫폼이 `scripts/set_version.py` 하나를 공유합니다. 같은 릴리스를 양쪽에서
+빌드할 때는 한쪽에서 정해진 버전을 다른 쪽에 인자로 넘기세요
+(`.\scripts\build_windows.ps1 -Version 2026.08.28.3`).
+
+`.app`은 ad-hoc 서명만 하고 공증하지 않으므로 `spctl`은 `rejected`를 보고합니다. 정상입니다.
+
+Both platforms share `scripts/set_version.py` for the `yyyy.MM.dd.N` build number. When building the
+same release on both, pin the version on the second build. The `.app` is ad-hoc signed and not
+notarized, so `spctl` reports `rejected` by design.
 
 Windows PC에서 빌드하기 전에 환경 체크를 실행합니다:
 
@@ -394,12 +527,20 @@ docs/                   project notes
 installer/              Inno Setup installer script
 scripts/                build and maintenance scripts
 src/hwp2pdf/            application package
+  app.py                  tkinter GUI
+  cli.py                  command line entry point (also dispatches `serve`)
+  jobs.py                 batch orchestration shared by every front end
+  backends/               conversion engines (local COM, remote HTTP)
+  server/                 Windows conversion server
+  i18n.py constants.py paths.py config.py updater.py
+tests/                  pytest suite (runs without Hancom Office)
 src/hwp_pdf_converter_app_safe.py
                         compatibility entrypoint for older local usage
 CODE_OF_CONDUCT.md      community behavior expectations
 CONTRIBUTING.md         contribution guide
 CONTRIBUTORS.md         contributor list
-hwp2pdf.spec            PyInstaller recipe
+hwp2pdf.spec            PyInstaller recipe (Windows)
+hwp2pdf-macos.spec      PyInstaller recipe (macOS .app)
 LICENSE                 MIT license
 pyproject.toml          Python package metadata
 SECURITY.md             security reporting guide

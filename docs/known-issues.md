@@ -2,7 +2,19 @@
 
 이번 변경에서 우회하거나 부분만 잡은 항목들. 일반 사용 흐름에서 발생률이 낮아 보류 중.
 
-## 1. 한컴 "알 수 없는 형식의 파일입니다." dialog 자동 처리 — 추가 검증 필요
+## 1. 한컴 "알 수 없는 형식의 파일입니다." dialog 자동 처리 — 미해결, 단 복구는 가능
+
+> **2026-08-28 갱신.** namun-ji(한컴오피스 2022)에서 재현했습니다. 아래 fixture의
+> DOCX 변환이 **13분 넘게 멈춥니다** — `HancomDialogWatcher`가 이 대화상자를 자동
+> 확인하지 못합니다. 소스 실행이라 2026.06.25.2의 hiddenimports 수정과는 무관하며,
+> 근본 원인은 여전히 미해결입니다.
+>
+> 다만 **배치가 통째로 멈추는 문제는 해결됐습니다.** `--timeout <초>`(로컬 CLI) 또는
+> 서버의 `--job-timeout`(기본 900초)을 쓰면 워치독이 한글을 강제 종료하고
+> 엔진을 다시 띄워 다음 파일부터 이어서 변환합니다. 같은 fixture로 검증:
+> 90초에 정리 → 해당 파일만 실패 기록 → 다음 파일 정상 변환, 전체 99초.
+> GUI에는 아직 이 옵션이 노출돼 있지 않습니다.
+
 
 `HancomDialogWatcher`의 자동-확인 + blocking-message 즉시 실패 처리에 메시지 추가
 (`src/hwp2pdf/app.py` `HANCOM_BLOCKING_DIALOG_MESSAGES`).
@@ -46,3 +58,47 @@ elevation 후 HKCU도 동일 hive라 동작 무리 없음. Over-the-shoulder(다
 설치 시에는 일반 사용자의 HKCU에 안 박혀, 첫 launch 때 `ensure_hwp_security_module_registered()`
 fallback이 보정해줌. 깔끔히 하려면 `PrivilegesRequired=lowest` + `DefaultDirName={userpf}\hwp2pdf`로
 per-user 설치 전환. 기존 설치 폴더/upgrade 흐름이 바뀌어 보류.
+
+## 3. 원격(변환 서버) 모드의 알려진 한계
+
+### 대화형 세션 필수
+
+서버는 반드시 **로그인된 데스크톱 세션**에서 실행해야 합니다. Windows 서비스로
+등록하면 위 §2의 Session 0 좀비 `Hwp.exe` 문제가 그대로 재현됩니다.
+자동 시작은 `scripts/install_serve_task.ps1`(작업 스케줄러, "사용자가 로그온한
+경우에만 실행")을 사용하세요.
+
+### 사전 차단 판정이 서버에서 일어남
+
+암호 문서·배포용 문서 판정(`read_hwp_file_flags`)은 Windows 전용 OLE API
+(`pythoncom.StgOpenStorage`)를 쓰므로 서버에서 수행합니다. 따라서 원격 모드에서는
+차단 대상 파일도 **일단 업로드된 뒤** 실패로 보고됩니다(공유 폴더 모드에서는 전송 없음).
+로컬 Windows 모드처럼 전송 전에 걸러내지는 못합니다.
+
+### 큐 직렬화
+
+한컴 COM 엔진은 프로세스·스레드 단일 인스턴스라 서버는 워커 스레드 1개로 직렬 처리합니다.
+여러 클라이언트가 동시에 붙으면 순서대로 대기하며, `--max-queue`를 넘으면 `429`를 반환합니다.
+
+### 평문 HTTP
+
+기본은 평문 HTTP입니다. Tailscale은 WireGuard로 이미 암호화되므로 무방하지만,
+일반 LAN에서는 토큰과 문서 내용이 평문으로 흐릅니다. `--tls-cert`/`--tls-key` 또는
+`tailscale serve`를 쓰거나, 신뢰된 네트워크에서만 사용하세요.
+
+### 잡별 타임아웃 미구현
+
+서버에 한 파일이 한컴 대화상자 등으로 멈추면 그 잡이 워커를 붙잡습니다.
+`HancomDialogWatcher`가 대부분을 자동 확인하지만, 잡별 타임아웃 + `kill_hwp()` 복구는
+아직 구현되지 않았습니다(`docs/context.md` §10). 현재 우회책은 서버 재시작입니다.
+
+## 4. macOS 로컬 한컴오피스는 자동화 불가
+
+`HwpMac2014.app`(한컴오피스 for Mac)에는 **AppleScript 사전(`.sdef`)이 없고**
+(바이너리에 `NSScript*` 심볼 없음), **CLI 변환 진입점도 없습니다**
+(`application:openFile:`만 존재). x86_64 단독 빌드라 Rosetta로 실행됩니다.
+
+남는 경로는 System Events GUI 스크립팅(`파일 > PDF로 저장하기`, 액션 ID
+`HWPAID_FILE_SAVE_AS_PDF`)뿐인데, 손쉬운 사용 권한이 필요하고 변환 중 화면·키보드를
+점유하며 잠금화면이나 원격 세션에서 실패합니다. 그래서 mac 앱은 로컬 한컴을 쓰지 않고
+Windows 변환 서버에 연결하는 방식을 택했습니다.
