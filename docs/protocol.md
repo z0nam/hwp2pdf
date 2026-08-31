@@ -13,6 +13,11 @@ Setup instructions live in [remote-server.md](remote-server.md).
 reports a different value. Bump it whenever an existing field changes meaning;
 adding a new optional field does not require a bump.
 
+**This is not the build version.** The client compares `API_VERSION` only, never
+`hwp2pdf`'s `yyyy.MM.dd.N`, so a server and a client from different releases work
+together as long as the protocol did not change -- which is the usual case. Only
+a release that bumps `API_VERSION` forces the two sides to be updated together.
+
 ## Model
 
 A **job** is one batch session. An **item** is one source file converted to one

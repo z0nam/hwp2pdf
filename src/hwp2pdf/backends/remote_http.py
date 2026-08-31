@@ -125,7 +125,8 @@ class RemoteHttpBackend:
         if health.get("api") != protocol.API_VERSION:
             raise BackendUnavailable(
                 translate(lang, "remote_version_mismatch",
-                          server=health.get("version", "?"), api=health.get("api", "?"))
+                          server=health.get("version", "?"), api=health.get("api", "?"),
+                          client_api=protocol.API_VERSION)
             )
 
         if health.get("auth_required") and not self.token:

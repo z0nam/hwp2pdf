@@ -540,3 +540,53 @@ def test_delete_job_without_a_worker_still_closes_the_session(tmp_path):
 
     assert backend.sessions_closed == 1
     assert store.active_job is None
+
+
+# -- protocol version vs build version -----------------------------------
+def test_a_different_build_version_is_fine(tmp_path, server, monkeypatch):
+    """Only API_VERSION gates compatibility, not hwp2pdf's yyyy.MM.dd.N.
+
+    Most releases do not touch the wire contract, so one side can be updated
+    without the other; the docs used to overstate this as "same version".
+    """
+    make_files(tmp_path, "a.hwp")
+
+    backend = client(server)
+    real_json = backend._json
+
+    def pretend_older_server(method, path, **kwargs):
+        payload = real_json(method, path, **kwargs)
+        if path == protocol.PATH_HEALTH:
+            payload["version"] = "2020.01.01.1"   # far older build
+            payload["api"] = protocol.API_VERSION  # same protocol
+        return payload
+
+    backend._json = pretend_older_server
+    backend.preflight("ko")  # must not raise
+
+    sink = RecordingSink()
+    jobs.run_batch(
+        sink, backend, target=str(tmp_path), recursive=False, overwrite=True,
+        use_safe_copy=True, force_one_page=True, output_formats=("PDF",), lang="ko",
+    )
+    assert (tmp_path / "a.pdf").read_bytes() == PDF_STUB
+
+
+def test_a_different_protocol_version_is_refused(server):
+    backend = client(server)
+    real_json = backend._json
+
+    def pretend_newer_protocol(method, path, **kwargs):
+        payload = real_json(method, path, **kwargs)
+        if path == protocol.PATH_HEALTH:
+            payload["api"] = protocol.API_VERSION + 1
+        return payload
+
+    backend._json = pretend_newer_protocol
+    with pytest.raises(BackendUnavailable) as excinfo:
+        backend.preflight("ko")
+
+    message = str(excinfo.value)
+    # The message must name both sides so the user knows which to update.
+    assert str(protocol.API_VERSION) in message
+    assert str(protocol.API_VERSION + 1) in message

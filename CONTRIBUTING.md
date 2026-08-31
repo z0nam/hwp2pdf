@@ -108,10 +108,12 @@ GitHub Release page mirrors it. When cutting a release:
 3. If the release ships a macOS build too, run `./scripts/build_macos.sh <same version>`
    on a Mac so both platforms carry the same build number.
 4. Commit `CHANGELOG.md` + `src/hwp2pdf/version.py` together, then push.
-5. Update the conversion server machines to the same build. The client refuses
-   to talk to a server reporting a different protocol `API_VERSION`, so a
-   half-updated pair fails closed with a clear message rather than misbehaving --
-   but it does fail, so deploy both sides together.
+5. If this release changed `API_VERSION` in `src/hwp2pdf/server/protocol.py`,
+   update the conversion server machines in the same pass: the client compares
+   that value and refuses a server reporting a different one. Otherwise the
+   server can be updated whenever convenient -- build versions do not have to
+   match, only the protocol does. A mismatch fails closed with a clear message
+   rather than misbehaving.
 6. `gh release create vYYYY.MM.DD.N --notes-file -` (or paste the same
    section body) and attach `release/hwp2pdf-setup-*.exe`,
    `release/hwp2pdf-windows-*.zip`, `dist/hwp2pdf-*.exe`,
