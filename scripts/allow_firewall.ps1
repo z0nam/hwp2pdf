@@ -9,7 +9,7 @@
     Run from an elevated PowerShell prompt.
 #>
 param(
-    [int]$Port = 8765,
+    [int]$Port = 17650,
     [string]$DisplayName = "hwp2pdf serve"
 )
 

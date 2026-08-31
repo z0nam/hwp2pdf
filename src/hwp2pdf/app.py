@@ -398,6 +398,10 @@ class ConverterApp:
         self.selected_files = []
         self.use_safe_copy_var = tk.BooleanVar(value=saved["safe_temp"])
         self.force_one_page_var = tk.BooleanVar(value=saved["force_one_page"])
+        # Off by default: a large document legitimately takes minutes, and a
+        # surprise kill is worse than a slow conversion.
+        self.job_timeout_var = tk.BooleanVar(value=saved["job_timeout_enabled"])
+        self.job_timeout_minutes_var = tk.StringVar(value=str(saved["job_timeout_minutes"]))
         self.output_pdf_var = tk.BooleanVar(value="PDF" in saved["formats"])
         self.output_docx_var = tk.BooleanVar(value="DOCX" in saved["formats"])
         self.language_var = tk.StringVar(
@@ -442,6 +446,7 @@ class ConverterApp:
             self.folder_var, self.overwrite_var, self.recursive_var,
             self.use_safe_copy_var, self.force_one_page_var,
             self.output_pdf_var, self.output_docx_var, self.language_var,
+            self.job_timeout_var, self.job_timeout_minutes_var,
             self.server_url_var, self.server_token_var, self.server_transport_var,
             self.use_remote_var,
         ):
@@ -586,6 +591,21 @@ class ConverterApp:
         )
         self.ui["force_one_page_check"].grid(row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
+        timeout_row = ttk.Frame(opts)
+        timeout_row.grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        self.ui["job_timeout_check"] = ttk.Checkbutton(
+            timeout_row, variable=self.job_timeout_var, command=self._apply_timeout_state
+        )
+        self.ui["job_timeout_check"].pack(side="left")
+        self.ui["job_timeout_entry"] = ttk.Spinbox(
+            timeout_row, from_=1, to=600, width=5, textvariable=self.job_timeout_minutes_var
+        )
+        self.ui["job_timeout_entry"].pack(side="left", padx=(8, 4))
+        self.ui["job_timeout_unit"] = ttk.Label(timeout_row)
+        self.ui["job_timeout_unit"].pack(side="left")
+        self.ui["job_timeout_note"] = ttk.Label(timeout_row, foreground="#666666")
+        self.ui["job_timeout_note"].pack(side="left", padx=(12, 0))
+
         server_frame = ttk.LabelFrame(self.root, padding=12)
         self.ui["server_frame"] = server_frame
         server_frame.columnconfigure(1, weight=1)
@@ -698,6 +718,12 @@ class ConverterApp:
         self.ui["output_label"].configure(text=self.tr("output"))
         self.ui["safe_temp_check"].configure(text=self.tr("safe_temp"))
         self.ui["force_one_page_check"].configure(text=self.tr("force_one_page"))
+        self.ui["job_timeout_check"].configure(text=self.tr("job_timeout_option"))
+        self.ui["job_timeout_unit"].configure(text=self.tr("job_timeout_minutes"))
+        self.ui["job_timeout_note"].configure(
+            text=self.tr("job_timeout_remote_note") if self.use_remote_backend() else ""
+        )
+        self._apply_timeout_state()
         self.start_btn.configure(text=self.tr("start"))
         self.stop_btn.configure(text=self.tr("stop"))
         self.ui["open_btn"].configure(text=self.tr("open_selected"))
@@ -984,10 +1010,33 @@ class ConverterApp:
         for key in ("server_address_entry", "server_token_entry", "server_test_btn"):
             self.ui[key].configure(state=state)
         self.ui["server_transport_combo"].configure(state="readonly" if remote else "disabled")
+        if "job_timeout_check" in self.ui:
+            self._apply_timeout_state()
         if "notes_label" in self.ui:
             self.ui["notes_label"].configure(
                 text=self.tr("notes_remote" if remote else "notes")
             )
+
+    def _apply_timeout_state(self):
+        """The number only matters when the option is on, and only locally."""
+        remote = self.use_remote_backend()
+        enabled = bool(self.job_timeout_var.get()) and not remote
+        self.ui["job_timeout_entry"].configure(state="normal" if enabled else "disabled")
+        self.ui["job_timeout_check"].configure(state="disabled" if remote else "normal")
+        if "job_timeout_note" in self.ui:
+            self.ui["job_timeout_note"].configure(
+                text=self.tr("job_timeout_remote_note") if remote else ""
+            )
+
+    def job_timeout_seconds(self):
+        """Seconds for the local engine watchdog, or None when disabled."""
+        if self.use_remote_backend() or not self.job_timeout_var.get():
+            return None
+        try:
+            minutes = int(float(self.job_timeout_minutes_var.get()))
+        except (TypeError, ValueError):
+            return None
+        return minutes * 60 if minutes > 0 else None
 
     def backend_settings(self):
         if not self.use_remote_backend():
@@ -1024,6 +1073,8 @@ class ConverterApp:
             "safe_temp": bool(self.use_safe_copy_var.get()),
             "force_one_page": bool(self.force_one_page_var.get()),
             "formats": formats or ["PDF"],
+            "job_timeout_enabled": bool(self.job_timeout_var.get()),
+            "job_timeout_minutes": self._timeout_minutes(),
         }
         self.settings["server"].update({
             "url": self.server_url_var.get().strip(),
@@ -1031,6 +1082,12 @@ class ConverterApp:
             "transport": self.server_transport_var.get(),
         })
         config.save(self.settings)
+
+    def _timeout_minutes(self) -> int:
+        try:
+            return max(1, int(float(self.job_timeout_minutes_var.get())))
+        except (TypeError, ValueError):
+            return config.DEFAULTS["options"]["job_timeout_minutes"]
 
     def _on_close(self):
         self._save_settings()
@@ -1533,6 +1590,7 @@ class ConverterApp:
                 output_formats,
                 lang,
                 self.backend_settings(),
+                self.job_timeout_seconds(),
             ),
             daemon=True,
         )
@@ -1558,6 +1616,7 @@ class ConverterApp:
         output_formats,
         lang: str,
         backend_settings=None,
+        job_timeout=None,
     ):
         # Tk variables may only be read on the main thread, so the caller
         # resolves the backend settings before starting this worker.
@@ -1570,6 +1629,9 @@ class ConverterApp:
         except BackendUnavailable as e:
             self.log_queue.put(("error", str(e)))
             return
+
+        if job_timeout and hasattr(backend, "job_timeout"):
+            backend.job_timeout = job_timeout
 
         run_batch(
             self.log_queue,

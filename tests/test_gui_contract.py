@@ -196,3 +196,48 @@ def test_windows_defaults_to_the_local_engine(app):
         pytest.skip("Windows-only default")
     assert app.use_remote_var.get() is False
     assert app.backend_settings()["url"] == ""
+
+
+# -- local conversion timeout (opt-in) -----------------------------------
+def test_timeout_is_off_by_default(app):
+    assert app.job_timeout_var.get() is False
+    assert app.job_timeout_seconds() is None
+
+
+def test_timeout_seconds_come_from_the_minutes_box(app):
+    app.use_remote_var.set(False)
+    if not IS_WINDOWS:
+        # Remote-only platforms always defer to the server.
+        assert app.job_timeout_seconds() is None
+        return
+    app.job_timeout_var.set(True)
+    app.job_timeout_minutes_var.set("15")
+    assert app.job_timeout_seconds() == 900
+
+
+def test_remote_conversion_defers_to_the_server(app):
+    app.use_remote_var.set(True)
+    app._apply_backend_mode()
+    app.job_timeout_var.set(True)
+    app.job_timeout_minutes_var.set("5")
+    assert app.job_timeout_seconds() is None
+    assert str(app.ui["job_timeout_check"].cget("state")) == "disabled"
+    assert app.ui["job_timeout_note"].cget("text")
+
+
+def test_a_nonsense_minutes_value_disables_rather_than_crashes(app):
+    app.use_remote_var.set(False)
+    app.job_timeout_var.set(True)
+    for bad in ("", "abc", "0", "-5"):
+        app.job_timeout_minutes_var.set(bad)
+        assert app.job_timeout_seconds() in (None, 0) or app.job_timeout_seconds() > 0
+
+
+def test_timeout_settings_persist(app, tmp_path):
+    app.job_timeout_var.set(True)
+    app.job_timeout_minutes_var.set("45")
+    app._save_settings()
+
+    saved = config.load(tmp_path / "settings.json")
+    assert saved["options"]["job_timeout_enabled"] is True
+    assert saved["options"]["job_timeout_minutes"] == 45

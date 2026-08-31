@@ -6,7 +6,9 @@ refuses to talk to a server with a different major contract.
 """
 
 API_VERSION = 1
-DEFAULT_PORT = 8765
+#: Deliberately outside the crowded 8xxx/9xxx development range, and below
+#: the Windows ephemeral range (49152+) so the OS never allocates it.
+DEFAULT_PORT = 17650
 
 AUTH_HEADER = "Authorization"
 AUTH_SCHEME = "Bearer"

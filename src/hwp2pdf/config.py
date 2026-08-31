@@ -42,6 +42,8 @@ DEFAULTS = {
         "safe_temp": True,
         "force_one_page": True,
         "formats": ["PDF"],
+        "job_timeout_enabled": False,
+        "job_timeout_minutes": 30,
     },
     "last_target": "",
 }

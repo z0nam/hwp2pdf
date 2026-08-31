@@ -265,7 +265,7 @@ Main options:
 - `--no-force-one-page`: PDF 저장 전 한쪽 보기/모아찍기 해제 강제 적용 끄기
 - `--kill-hwp`: 실행 중인 아래한글 프로세스를 강제 종료하고 진행
 - `--allow-running-hwp`: 아래한글이 이미 실행 중이어도 그대로 진행
-- `--server`: Windows 변환 서버 주소 (예: `http://host:8765`). macOS에서는 필수
+- `--server`: Windows 변환 서버 주소 (예: `http://host:17650`). macOS에서는 필수
 - `--token`: 변환 서버 토큰
 - `--transport`: `auto` / `upload` / `share`
 
@@ -275,10 +275,10 @@ Remote conversion (macOS, or a Windows box without Hancom Office):
 
 ```bash
 hwp2pdf ~/Documents/reports --pdf --docx \
-    --server http://namun-ji.<tailnet>.ts.net:8765 --token <token>
+    --server http://namun-ji.<tailnet>.ts.net:17650 --token <token>
 
 # 환경변수로도 지정할 수 있습니다 / environment variables also work
-export HWP2PDF_SERVER_URL=http://namun-ji.<tailnet>.ts.net:8765
+export HWP2PDF_SERVER_URL=http://namun-ji.<tailnet>.ts.net:17650
 export HWP2PDF_TOKEN=<token>
 hwp2pdf ~/Documents/reports --pdf
 ```
@@ -290,7 +290,7 @@ hwp2pdf ~/Documents/reports --pdf
 On a Windows machine with Hancom Office installed:
 
 ```powershell
-hwp2pdf-cli.exe serve --init                    # 토큰 생성 후 127.0.0.1:8765
+hwp2pdf-cli.exe serve --init                    # 토큰 생성 후 127.0.0.1:17650
 hwp2pdf-cli.exe serve --bind tailscale --init   # 테일넷에만 노출 (권장)
 hwp2pdf-cli.exe serve --bind 0.0.0.0 --init     # LAN (방화벽 규칙 필요)
 hwp2pdf-cli.exe serve --help

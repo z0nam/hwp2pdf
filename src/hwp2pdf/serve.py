@@ -249,7 +249,7 @@ def banner(log, args, bind, token, share_roots, probe):
 
 def main(argv=None) -> int:
     from hwp2pdf.backends.windows_com import WindowsComBackend, probe_hwp
-    from hwp2pdf.server.http_server import create_server
+    from hwp2pdf.server.http_server import PortUnavailable, create_server
 
     args = build_parser().parse_args(argv)
     log = ServerLog(resolve_log_path(args.log_file))
@@ -276,21 +276,27 @@ def main(argv=None) -> int:
     share_roots = dict(args.share_root)
     probe = probe_hwp()
 
-    httpd = create_server(
-        bind,
-        args.port,
-        backend_factory=lambda: WindowsComBackend(job_timeout=args.job_timeout or None),
-        hwp_probe=probe_hwp,
-        token=token,
-        share_roots=share_roots,
-        max_upload_bytes=args.max_upload_bytes,
-        max_queue=args.max_queue,
-        job_ttl=args.job_ttl,
-        tls_cert=args.tls_cert,
-        tls_key=args.tls_key,
-        quiet=args.quiet,
-        log_sink=log,
-    )
+    try:
+        httpd = create_server(
+            bind,
+            args.port,
+            backend_factory=lambda: WindowsComBackend(job_timeout=args.job_timeout or None),
+            hwp_probe=probe_hwp,
+            token=token,
+            share_roots=share_roots,
+            max_upload_bytes=args.max_upload_bytes,
+            max_queue=args.max_queue,
+            job_ttl=args.job_ttl,
+            tls_cert=args.tls_cert,
+            tls_key=args.tls_key,
+            quiet=args.quiet,
+            log_sink=log,
+        )
+    except PortUnavailable as e:
+        # In the windowless build this is the only trace the user would ever see.
+        for line in str(e).splitlines():
+            log(line)
+        raise SystemExit(1)
 
     banner(log, args, bind, token, share_roots, probe)
     if args.init and token:

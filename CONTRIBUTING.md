@@ -56,7 +56,7 @@ fake engine behind it. CI runs it on macOS and Windows (`.github/workflows/test.
 To exercise a real conversion server:
 
 ```bash
-python scripts/smoke_remote.py http://host:8765 <token> sample.hwp
+python scripts/smoke_remote.py http://host:17650 <token> sample.hwp
 ```
 
 ## Build
@@ -108,7 +108,11 @@ GitHub Release page mirrors it. When cutting a release:
 3. If the release ships a macOS build too, run `./scripts/build_macos.sh <same version>`
    on a Mac so both platforms carry the same build number.
 4. Commit `CHANGELOG.md` + `src/hwp2pdf/version.py` together, then push.
-5. `gh release create vYYYY.MM.DD.N --notes-file -` (or paste the same
+5. Update the conversion server machines to the same build. The client refuses
+   to talk to a server reporting a different protocol `API_VERSION`, so a
+   half-updated pair fails closed with a clear message rather than misbehaving --
+   but it does fail, so deploy both sides together.
+6. `gh release create vYYYY.MM.DD.N --notes-file -` (or paste the same
    section body) and attach `release/hwp2pdf-setup-*.exe`,
    `release/hwp2pdf-windows-*.zip`, `dist/hwp2pdf-*.exe`,
    `dist/hwp2pdf-cli-*.exe`, and `release/hwp2pdf-macos-*.zip`.

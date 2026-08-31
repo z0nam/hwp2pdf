@@ -6,14 +6,18 @@ private network, and conversion is serialized anyway. ``ThreadingHTTPServer``
 only exists so a long-polling event request cannot block an upload.
 """
 
+import csv
+import errno
 import hmac
 import json
 import os
 import re
 import shutil
 import ssl
+import subprocess
 import sys
 import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -33,9 +37,50 @@ _RE_JOB = re.compile(r"^/v1/jobs/([0-9a-f]{32})$")
 COPY_CHUNK = 1024 * 1024
 
 
+class PortUnavailable(Exception):
+    """The requested port could not be bound. Carries a user-facing reason."""
+
+
+def _port_holder(port: int) -> str:
+    """Best-effort name of whatever already owns the port, for the error text."""
+    if os.name != "nt":
+        return ""
+    try:
+        netstat = subprocess.run(
+            ["netstat", "-ano", "-p", "TCP"],
+            capture_output=True, text=True, encoding="oem", errors="replace",
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            timeout=10,
+        )
+        pid = ""
+        for line in (netstat.stdout or "").splitlines():
+            parts = line.split()
+            if len(parts) >= 5 and parts[3].upper() == "LISTENING" and parts[1].endswith(f":{port}"):
+                pid = parts[4]
+                break
+        if not pid:
+            return ""
+        tasks = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, encoding="oem", errors="replace",
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            timeout=10,
+        )
+        for row in csv.reader((tasks.stdout or "").splitlines()):
+            if len(row) >= 2:
+                return f"{row[0]} (PID {row[1]})"
+        return f"PID {pid}"
+    except Exception:
+        return ""
+
+
 class ConversionHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
-    allow_reuse_address = True
+    # Windows SO_REUSEADDR is not the BSD one: it lets a second server bind a
+    # port that is already listening, and traffic then goes to whichever socket
+    # the kernel picks. A port conflict has to fail, not silently split, so the
+    # option is only kept where it means "get past TIME_WAIT".
+    allow_reuse_address = os.name != "nt"
 
     def __init__(self, address, handler_class, *, store, token, max_upload_bytes,
                  hwp_probe, log_sink=None):
@@ -359,6 +404,8 @@ def create_server(
     tls_key: str = "",
     quiet: bool = False,
     log_sink=None,
+    bind_retries: int = 3,
+    bind_retry_delay: float = 2.0,
 ):
     store = JobStore(
         backend_factory=backend_factory,
@@ -366,15 +413,28 @@ def create_server(
         max_queue=max_queue,
         job_ttl=job_ttl,
     )
-    httpd = ConversionHTTPServer(
-        (bind, port),
-        Handler,
-        store=store,
-        token=token,
-        max_upload_bytes=max_upload_bytes,
-        hwp_probe=hwp_probe,
-        log_sink=log_sink,
-    )
+    # A previous instance may still be shutting down, so a busy port is retried
+    # briefly before it is treated as a real conflict with another program.
+    attempts = max(1, bind_retries + 1)
+    for attempt in range(attempts):
+        try:
+            httpd = ConversionHTTPServer(
+                (bind, port),
+                Handler,
+                store=store,
+                token=token,
+                max_upload_bytes=max_upload_bytes,
+                hwp_probe=hwp_probe,
+                log_sink=log_sink,
+            )
+            break
+        except OSError as e:
+            if e.errno not in (errno.EADDRINUSE, errno.EACCES) or attempt == attempts - 1:
+                store.shutdown()
+                raise _bind_error(bind, port, e) from None
+            if log_sink is not None:
+                log_sink(f"port {port} is busy, retrying ({attempt + 1}/{attempts - 1})...")
+            time.sleep(bind_retry_delay)
     httpd.quiet = quiet
     if tls_cert and tls_key:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -382,6 +442,20 @@ def create_server(
         httpd.socket = context.wrap_socket(httpd.socket, server_side=True)
     store.start()
     return httpd
+
+
+def _bind_error(bind: str, port: int, error: OSError) -> PortUnavailable:
+    if error.errno == errno.EACCES:
+        return PortUnavailable(
+            f"Not allowed to bind {bind}:{port} ({error.strerror}).\n"
+            "Choose a port above 1024 with --port, or run with the rights it needs."
+        )
+    holder = _port_holder(port)
+    used_by = f" It is held by {holder}." if holder else ""
+    return PortUnavailable(
+        f"Port {port} on {bind} is already in use.{used_by}\n"
+        f"Pick a free port with --port <number> and use the same one in the client."
+    )
 
 
 def serve_forever(httpd):

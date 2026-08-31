@@ -2,7 +2,7 @@
 
 Standard library only, so it runs from a clean macOS checkout:
 
-    python scripts/smoke_remote.py http://namun-ji.<tailnet>.ts.net:8765 <token> sample.hwp
+    python scripts/smoke_remote.py http://namun-ji.<tailnet>.ts.net:17650 <token> sample.hwp
 
 Exits non-zero on the first failure.
 """

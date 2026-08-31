@@ -22,7 +22,7 @@
 param(
     [string]$Exe = "",
     [string]$Bind = "tailscale",
-    [int]$Port = 8765,
+    [int]$Port = 17650,
     [string]$TaskName = "hwp2pdf serve"
 )
 

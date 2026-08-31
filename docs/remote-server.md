@@ -34,7 +34,7 @@ hwp2pdf-cli.exe serve --init
 
 ```
 hwp2pdf conversion server v2026.08.28.1 (API 1)
-  listening   http://100.124.117.75:8765
+  listening   http://100.124.117.75:17650
   auth        token AbCdEf...
   hangul      yes (SOFTWARE\HNC\HwpRun)
   shares      (none)
@@ -126,11 +126,11 @@ tailscale debug prefs | Select-String ForceDaemon   # "ForceDaemon": true 확인
 **클라이언트(mac):** 앱의 `변환 서버` 칸에 MagicDNS 이름 또는 100.x 주소를 입력합니다.
 
 ```
-주소   http://<호스트이름>.<테일넷>.ts.net:8765
+주소   http://<호스트이름>.<테일넷>.ts.net:17650
 토큰   <서버가 출력한 토큰>
 ```
 
-예: 호스트 `namun-ji`, 테일넷 `tail0fdba8.ts.net` → `http://namun-ji.tail0fdba8.ts.net:8765`
+예: 호스트 `namun-ji`, 테일넷 `tail0fdba8.ts.net` → `http://namun-ji.tail0fdba8.ts.net:17650`
 (테일넷 이름은 `tailscale status --json`의 `MagicDNSSuffix`에서 확인)
 
 MagicDNS가 꺼져 있으면 `tailscale status`에 보이는 100.x 주소를 그대로 쓰면 됩니다.
@@ -139,7 +139,7 @@ MagicDNS가 꺼져 있으면 `tailscale status`에 보이는 100.x 주소를 그
 
 ```powershell
 hwp2pdf-cli.exe serve --bind 127.0.0.1
-tailscale serve --bg 8765
+tailscale serve --bg 17650
 ```
 
 그러면 클라이언트 주소가 `https://<호스트>.<테일넷>.ts.net`이 됩니다.
@@ -156,10 +156,10 @@ Windows 방화벽에서 인바운드 포트를 열어야 합니다. **개인 프
 ```powershell
 .\scripts\allow_firewall.ps1          # 아래 규칙을 그대로 실행합니다
 # New-NetFirewallRule -DisplayName "hwp2pdf serve" -Direction Inbound `
-#   -Protocol TCP -LocalPort 8765 -Profile Private -Action Allow
+#   -Protocol TCP -LocalPort 17650 -Profile Private -Action Allow
 ```
 
-클라이언트 주소는 `http://<Windows LAN IP>:8765`.
+클라이언트 주소는 `http://<Windows LAN IP>:17650`.
 
 > ⚠️ LAN에서는 통신이 **평문 HTTP**입니다. 신뢰할 수 있는 사내망에서만 쓰거나
 > `--tls-cert` / `--tls-key`로 TLS를 켜세요. 공인 인터넷에 절대 노출하지 마세요.
@@ -173,9 +173,9 @@ hwp2pdf-cli.exe serve --bind 0.0.0.0 --init
 ```
 
 - **공유 네트워크(NAT)**: VM의 IP(`ipconfig`)를 그대로 사용 →
-  `http://10.211.55.x:8765` (Parallels 기본 대역)
-- **포트 포워딩**: Parallels/VMware의 네트워크 설정에서 호스트 8765 → 게스트 8765를
-  전달하면 mac에서 `http://127.0.0.1:8765`로 붙을 수 있습니다.
+  `http://10.211.55.x:17650` (Parallels 기본 대역)
+- **포트 포워딩**: Parallels/VMware의 네트워크 설정에서 호스트 17650 → 게스트 17650를
+  전달하면 mac에서 `http://127.0.0.1:17650`로 붙을 수 있습니다.
 
 VM은 mac과 파일시스템을 공유하기 쉬우므로 **공유 폴더 모드**(§3)와 특히 잘 맞습니다.
 
@@ -201,7 +201,7 @@ hwp2pdf-cli.exe serve --bind tailscale --share-root work=D:\shared --share-root 
 ```json
 {
   "server": {
-    "url": "http://namun-ji.tail0fdba8.ts.net:8765",
+    "url": "http://namun-ji.tail0fdba8.ts.net:17650",
     "token": "...",
     "transport": "auto",
     "shares": [
@@ -231,14 +231,14 @@ hwp2pdf-cli.exe serve --bind tailscale --share-root work=D:\shared --share-root 
 
 ```bash
 hwp2pdf ~/문서/보고서폴더 --pdf --docx \
-    --server http://namun-ji.tail0fdba8.ts.net:8765 \
+    --server http://namun-ji.tail0fdba8.ts.net:17650 \
     --token  <토큰>
 ```
 
 환경변수도 쓸 수 있습니다 (저장된 설정보다 우선):
 
 ```bash
-export HWP2PDF_SERVER_URL=http://namun-ji.tail0fdba8.ts.net:8765
+export HWP2PDF_SERVER_URL=http://namun-ji.tail0fdba8.ts.net:17650
 export HWP2PDF_TOKEN=...
 hwp2pdf ~/문서/보고서폴더 --pdf
 ```
@@ -257,7 +257,7 @@ python scripts/smoke_remote.py <url> <token> <sample.hwp>   # 실제 변환 왕�
 | 옵션 | 기본값 | 설명 |
 |---|---|---|
 | `--bind` | `127.0.0.1` | `tailscale` / 주소 / `0.0.0.0` |
-| `--port` | `8765` | |
+| `--port` | `17650` | 이미 쓰는 포트면 다른 번호로. 클라이언트 주소도 같이 바꿔야 합니다 |
 | `--token` | (파일) | 없으면 `%LOCALAPPDATA%\hwp2pdf\server_token.txt` |
 | `--init` | | 토큰이 없으면 생성해 저장하고 출력 |
 | `--no-auth` | | 루프백 바인드일 때만 허용 |
@@ -288,6 +288,7 @@ python scripts/smoke_remote.py <url> <token> <sample.hwp>   # 실제 변환 왕�
 | 잘 되다가 갑자기 연결 실패 | `server.log` 마지막 줄과 `Get-ScheduledTaskInfo`의 `LastTaskResult`를 보세요. `3221225786`(`0xC000013A`)이면 콘솔 빌드의 창이 닫힌 경우입니다(창 없는 `hwp2pdf-serve.exe`를 쓰면 안 생깁니다). `Start-ScheduledTask`로 재시작 |
 | 부팅/절전 복귀 직후 연결 실패 | `--bind tailscale`은 Tailscale이 올라올 때까지 최대 3분 기다립니다(`--tailscale-wait`). 그래도 안 되면 `server.log`를 보세요. 10분 주기 트리거가 다시 시도합니다 |
 | 업데이트 재부팅 후 계속 안 됨 | 아무도 로그인하지 않은 상태일 수 있습니다. 한글 COM은 데스크톱 세션이 필수라 자동 로그인이 필요합니다 |
+| 서버가 안 뜨고 `server.log`에 "Port ... already in use" | 그 포트를 다른 프로그램이 쓰고 있습니다. 로그에 점유 프로세스 이름이 같이 찍힙니다. `--port <다른번호>`로 옮기고 클라이언트 주소도 바꾸세요 |
 | 서버가 뭘 하는지 안 보임 | 창 없는 빌드라 정상입니다. `%LOCALAPPDATA%\hwp2pdf\server.log`를 보거나 맥 앱의 `연결 테스트`를 누르세요 |
 | 배치 도중 네트워크 끊김 | 폴링은 커서 기반이라 자동 재개됩니다. 최종 실패한 파일만 CSV에 `FAILED`로 남고 나머지는 계속 진행합니다 |
 
@@ -304,7 +305,7 @@ python scripts/smoke_remote.py <url> <token> <sample.hwp>   # 실제 변환 왕�
   ```json
   {
     "acls": [
-      { "action": "accept", "src": ["user@example.com"], "dst": ["namun-ji:8765"] }
+      { "action": "accept", "src": ["user@example.com"], "dst": ["namun-ji:17650"] }
     ]
   }
   ```
@@ -326,13 +327,13 @@ exposed:
 
 - **Tailscale (recommended)** — `serve --bind tailscale` binds only this
   machine's 100.x address, so nothing is exposed on the LAN and no firewall rule
-  is needed. Point the client at `http://<host>.<tailnet>.ts.net:8765`. For TLS,
-  bind loopback and run `tailscale serve --bg 8765`.
+  is needed. Point the client at `http://<host>.<tailnet>.ts.net:17650`. For TLS,
+  bind loopback and run `tailscale serve --bg 17650`.
 - **LAN** — `serve --bind 0.0.0.0` plus a Private-profile firewall rule
   (`scripts/allow_firewall.ps1`). Traffic is plain HTTP; use `--tls-cert` /
   `--tls-key` or keep it on a trusted network.
 - **Local Windows VM** — bind `0.0.0.0` inside the VM and use its NAT address,
-  or forward host `127.0.0.1:8765` to the guest.
+  or forward host `127.0.0.1:17650` to the guest.
 
 **Never register the server as a Windows Service.** Hangul automation needs an
 interactive desktop session; Session 0 leaves zombie `Hwp.exe` processes. Use a
@@ -349,7 +350,7 @@ rejected with 400.
 connection*, or use the CLI:
 
 ```bash
-hwp2pdf ~/Documents/reports --pdf --docx --server http://host:8765 --token <token>
+hwp2pdf ~/Documents/reports --pdf --docx --server http://host:17650 --token <token>
 # or export HWP2PDF_SERVER_URL / HWP2PDF_TOKEN
 ```
 
