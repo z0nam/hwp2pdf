@@ -17,6 +17,9 @@ if SECURITY_DLL_X86.exists():
 if SECURITY_DLL_X64.exists():
     SECURITY_DLL_DATAS.append((str(SECURITY_DLL_X64), "vendor/x64"))
 
+RHWP_BINARY = ROOT / "vendor" / "rhwp" / "rhwp.exe"
+RHWP_BINARIES = [(str(RHWP_BINARY), "vendor/rhwp")] if RHWP_BINARY.exists() else []
+
 
 a_gui = Analysis(
     ["src/hwp2pdf/__main__.py"],
@@ -25,6 +28,7 @@ a_gui = Analysis(
         (str(PYTHON_DLLS / "_tkinter.pyd"), "."),
         (str(PYTHON_DLLS / "tcl86t.dll"), "."),
         (str(PYTHON_DLLS / "tk86t.dll"), "."),
+        *RHWP_BINARIES,
     ],
     datas=[
         (str(PYTHON_ROOT / "Lib" / "tkinter"), "tkinter"),
@@ -74,7 +78,7 @@ gui_exe = EXE(
 a_cli = Analysis(
     ["src/hwp2pdf/cli.py"],
     pathex=[str(ROOT / "src")],
-    binaries=[],
+    binaries=RHWP_BINARIES,
     datas=SECURITY_DLL_DATAS,
     hiddenimports=[
         "pythoncom", "pywintypes",

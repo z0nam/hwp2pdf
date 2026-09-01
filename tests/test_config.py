@@ -14,6 +14,14 @@ def settings_file(tmp_path):
 def test_missing_file_returns_defaults(settings_file):
     loaded = config.load(settings_file)
     assert loaded == config.default_settings()
+    assert loaded["options"]["job_timeout_minutes"] == 10
+
+
+def test_existing_timeout_setting_is_preserved(settings_file):
+    settings_file.write_text(
+        json.dumps({"options": {"job_timeout_minutes": 30}}), encoding="utf-8"
+    )
+    assert config.load(settings_file)["options"]["job_timeout_minutes"] == 30
 
 
 def test_roundtrip(settings_file):

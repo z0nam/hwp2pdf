@@ -124,11 +124,15 @@ def run_batch(
             sink.put(("error", str(e)))
             return
 
-        # Read capabilities only after preflight: a fallback backend does not
-        # know which engine it is until then.
-        staging_enabled = use_safe_copy and backend.capabilities.local_staging
+        try:
+            backend.open_session(sink, lang, session_options)
+        except BackendUnavailable as e:
+            sink.put(("error", str(e)))
+            return
 
-        backend.open_session(sink, lang, session_options)
+        # A fallback can also engage while opening the preferred engine, so
+        # resolve capabilities only after the session is successfully open.
+        staging_enabled = use_safe_copy and backend.capabilities.local_staging
 
         try:
             if staging_enabled:

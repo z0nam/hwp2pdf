@@ -76,6 +76,35 @@ def test_fallback_engages_and_says_so():
     assert any("서버에 연결하지 못했습니다" in text for text in sink.logs())
 
 
+def test_fallback_can_engage_while_the_primary_session_is_opened():
+    primary = FakeBackend(open_unavailable="한컴을 시작하지 못했습니다")
+    fallback = FakeBackend()
+    wrapper = FallbackBackend(primary, fallback)
+    wrapper.preflight("ko")
+
+    sink = RecordingSink()
+    wrapper.open_session(sink, "ko", None)
+
+    assert wrapper.active is fallback
+    assert primary.sessions_closed == 1
+    assert fallback.sessions_opened == 1
+    assert any("한컴을 시작하지 못했습니다" in text for text in sink.logs())
+
+
+def test_configuration_errors_do_not_engage_fallback():
+    primary = FakeBackend(
+        unavailable=BackendUnavailable("인증 실패", fallback_allowed=False)
+    )
+    fallback = FakeBackend()
+    wrapper = FallbackBackend(primary, fallback)
+
+    with pytest.raises(BackendUnavailable) as excinfo:
+        wrapper.preflight("ko")
+
+    assert "인증 실패" in str(excinfo.value)
+    assert fallback.sessions_opened == 0
+
+
 def test_both_unavailable_reports_the_primary_problem():
     wrapper = FallbackBackend(
         FakeBackend(unavailable="서버 문제"), FakeBackend(unavailable="rhwp 없음")
@@ -97,6 +126,11 @@ def test_create_backend_wraps_only_when_asked():
     server = {"url": "http://host:17650", "token": "t", "transport": "auto", "shares": []}
     assert not isinstance(create_backend(server, "ko"), FallbackBackend)
     assert isinstance(create_backend(server, "ko", rhwp_fallback=True), FallbackBackend)
+
+
+def test_create_backend_can_select_rhwp_for_one_run():
+    backend = create_backend({"url": "http://host:17650"}, "ko", rhwp_only=True)
+    assert isinstance(backend, RhwpBackend)
 
 
 def test_no_server_configured_falls_back_to_whatever_is_local():

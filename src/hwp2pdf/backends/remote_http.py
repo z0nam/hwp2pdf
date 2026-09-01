@@ -93,7 +93,9 @@ class RemoteHttpBackend:
     def _http_error(self, e):
         lang = self._lang()
         if e.code in (401, 403):
-            return BackendUnavailable(translate(lang, "remote_auth_failed"))
+            return BackendUnavailable(
+                translate(lang, "remote_auth_failed"), fallback_allowed=False
+            )
         if e.code == 429:
             return RemoteError(translate(lang, "remote_server_busy"))
         if e.code == 413:
@@ -126,11 +128,14 @@ class RemoteHttpBackend:
             raise BackendUnavailable(
                 translate(lang, "remote_version_mismatch",
                           server=health.get("version", "?"), api=health.get("api", "?"),
-                          client_api=protocol.API_VERSION)
+                          client_api=protocol.API_VERSION),
+                fallback_allowed=False,
             )
 
         if health.get("auth_required") and not self.token:
-            raise BackendUnavailable(translate(lang, "remote_auth_failed"))
+            raise BackendUnavailable(
+                translate(lang, "remote_auth_failed"), fallback_allowed=False
+            )
 
         try:
             caps = self._json("GET", protocol.PATH_CAPABILITIES, timeout=CONNECT_TIMEOUT,
@@ -154,14 +159,21 @@ class RemoteHttpBackend:
         self.cancelled = False
         self.cursor = 0
 
-        created = self._json(
-            "POST", protocol.PATH_JOBS,
-            payload={"lang": lang, "safe_temp": bool(getattr(options, "safe_temp", True))},
-            timeout=JOB_TIMEOUT,
-        )
+        try:
+            created = self._json(
+                "POST", protocol.PATH_JOBS,
+                payload={"lang": lang, "safe_temp": bool(getattr(options, "safe_temp", True))},
+                timeout=JOB_TIMEOUT,
+            )
+        except BackendUnavailable:
+            raise
+        except RemoteError as e:
+            raise BackendUnavailable(str(e)) from None
         self.job_id = created.get("job_id")
         if not self.job_id:
-            raise RemoteError(translate(lang, "remote_unreachable", url=self.base_url, detail="no job id"))
+            raise BackendUnavailable(
+                translate(lang, "remote_unreachable", url=self.base_url, detail="no job id")
+            )
 
         sink.put(("log", translate(
             lang, "remote_connected",

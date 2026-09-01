@@ -30,16 +30,23 @@ __all__ = [
 
 
 def create_backend(server=None, lang: str = "ko", rhwp_fallback: bool = False,
-                   rhwp_path: str = ""):
+                   rhwp_path: str = "", rhwp_only: bool = False):
     """Return the backend to use for a batch.
 
     ``server`` is a mapping like ``config.server_settings()``. When it is None
     the saved settings and the ``HWP2PDF_SERVER_URL`` / ``HWP2PDF_TOKEN``
     environment variables are consulted.
 
-    ``rhwp_fallback`` wraps the result so that an unreachable conversion server
-    falls back to local rhwp rendering, which is PDF-only and approximate.
+    ``rhwp_fallback`` wraps the preferred Hancom engine so that a backend which
+    cannot start falls back to local rhwp rendering. ``rhwp_only`` is a one-run
+    override used when the user chooses rhwp because an existing HWP process is
+    busy. Both modes are PDF-only and approximate.
     """
+    if rhwp_only:
+        from hwp2pdf.backends.local_rhwp import RhwpBackend
+
+        return RhwpBackend(rhwp_path)
+
     resolved = server if server is not None else config.server_settings()
     url = (resolved or {}).get("url", "").strip()
 

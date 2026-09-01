@@ -4,7 +4,8 @@
 
 .DESCRIPTION
     rhwp is only needed for the optional local fallback that renders PDFs when
-    the conversion server cannot be reached. hwp2pdf works without it.
+    local Hancom Office or the conversion server cannot start. hwp2pdf works
+    without it.
 
     Uses only Invoke-WebRequest -- no GitHub CLI and no account, since the
     releases are public.

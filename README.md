@@ -20,6 +20,7 @@ to a Windows **conversion server** over HTTP.
 - 한컴 확인/오류 대화상자 자동 확인 후 실패 파일은 로그에 기록
 - 안전한 임시 폴더 변환 모드
 - 변환 결과 CSV 로그 생성
+- 한컴오피스 또는 변환 서버를 시작할 수 없을 때 rhwp로 PDF 비상 변환(선택 기능, 근사 품질)
 - macOS 앱: Windows 변환 서버(Tailscale/LAN/VM)에 연결해 동일한 UI로 변환
 - Windows 변환 서버 모드(`hwp2pdf-cli serve`)와 공유 폴더 경로 전달 지원
 
@@ -34,6 +35,7 @@ to a Windows **conversion server** over HTTP.
 - Auto-confirm Hancom confirmation/error dialogs and log failed files
 - Safe temporary local conversion mode
 - CSV conversion log
+- Optional approximate PDF fallback with rhwp when local Hancom Office or the conversion server cannot start
 - macOS app that converts through a Windows conversion server over Tailscale, LAN or a local VM
 - Windows conversion server mode (`hwp2pdf-cli serve`) with optional shared-folder passthrough
 
@@ -219,12 +221,19 @@ The `.app` is ad-hoc signed and not notarized, so the first launch needs right-c
 2. **Output**에서 **PDF**, **DOCX** 중 하나 또는 둘 다 선택합니다.
 3. 폴더를 선택한 경우 하위 폴더 포함 여부를 선택합니다. 파일을 선택한 경우 **Include subfolders**는 비활성화되고 선택한 파일만 변환하며, 다시 폴더를 선택하면 이전 설정이 복원됩니다.
 4. 기존 출력 파일 덮어쓰기 여부, **Force one-page view before export** 옵션을 선택합니다.
+   변환이 대화상자 등으로 멈출 때 자동으로 한글을 종료하고 다음 파일로 넘어가야
+   한다면 **변환이 오래 걸리면 한글을 강제 종료하고 다음 파일로 진행**을 켜세요.
+   신규 설치 기본 시간은 10분이며, 큰 문서는 필요하면 더 길게 조정할 수 있습니다.
+   기존에 저장된 시간 설정은 유지됩니다.
 5. **Start conversion**을 누릅니다.
 
 1. To convert a whole folder, click **Browse folder...** and select the target folder. To convert one file, click **Pick file...** and select an `.hwp` or `.hwpx` file. You can also drag a folder or HWP/HWPX file from File Explorer onto the app window.
 2. Select **PDF**, **DOCX**, or both under **Output**.
 3. If a folder is selected, choose whether to include subfolders. If a file is selected, **Include subfolders** is disabled and only that file is converted; selecting a folder again restores the previous setting.
 4. Choose whether to overwrite existing output files and force one-page view before export.
+   If a conversion can get stuck behind a dialog, enable **Force-close Hangul and move on if
+   a conversion takes too long**. New installations use a 10-minute default; increase it for
+   unusually large documents as needed. Existing saved values are preserved.
 5. Click **Start conversion**.
 
 PDF 또는 DOCX 파일은 원본 문서 옆에 생성됩니다. 선택한 루트 폴더에는 `hwp2pdf_log.csv` 변환 로그가 생성됩니다.
@@ -268,8 +277,10 @@ Main options:
 - `--server`: Windows 변환 서버 주소 (예: `http://host:17650`). macOS에서는 필수
 - `--token`: 변환 서버 토큰
 - `--transport`: `auto` / `upload` / `share`
-- `--rhwp-fallback`: 서버에 연결할 수 없으면 로컬 [rhwp](https://github.com/edwardkim/rhwp)로 PDF 생성
-  (근사 품질, PDF만). `scripts/fetch_rhwp.sh`로 설치 — GitHub 계정 불필요
+- `--rhwp-fallback`: 로컬 한컴오피스 또는 변환 서버를 시작할 수 없으면
+  [rhwp](https://github.com/edwardkim/rhwp)로 PDF 생성(근사 품질, PDF만).
+  배포판에는 rhwp가 포함되며, 소스 실행 환경에서는 `scripts/fetch_rhwp.sh` 또는
+  `scripts/fetch_rhwp.ps1`로 설치할 수 있습니다 — GitHub 계정 불필요
 - `--rhwp-path`: rhwp 실행 파일 경로
 
 원격 변환(macOS 또는 한컴이 없는 Windows):

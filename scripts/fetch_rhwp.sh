@@ -3,8 +3,9 @@
 # verify its SHA-256 against the release SHA256SUMS.txt, and install it to
 # vendor/rhwp/rhwp.
 #
-# rhwp is only needed for the optional local fallback that renders PDFs when the
-# conversion server cannot be reached. hwp2pdf works without it.
+# rhwp is only needed for the optional local fallback that renders PDFs when
+# local Hancom Office or the conversion server cannot start. hwp2pdf works
+# without it.
 #
 # Usage:  scripts/fetch_rhwp.sh [version]
 # Requires: curl, tar, shasum. No GitHub CLI and no account -- the releases are

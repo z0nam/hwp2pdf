@@ -1,8 +1,8 @@
-"""Try one backend, fall back to another when it cannot start.
+"""Try the preferred Hancom backend, then an explicitly enabled fallback.
 
-Used for "convert locally with rhwp when the conversion server is unreachable".
-The fallback only engages on ``BackendUnavailable`` -- a backend that starts and
-then fails a file is not a reason to switch engines mid-batch.
+The switch may happen during preflight or while opening the conversion session,
+but never after file conversion begins.  That keeps one batch from silently
+mixing exact Hancom output with approximate rhwp output.
 """
 
 from hwp2pdf.backends.base import BackendUnavailable
@@ -28,20 +28,38 @@ class FallbackBackend:
             self.active = self.primary
             return
         except BackendUnavailable as e:
-            self.primary_error = str(e)
-
-        try:
-            self.fallback.preflight(lang)
-        except BackendUnavailable:
-            # Report the primary's problem: that is the one the user meant to use.
-            raise BackendUnavailable(self.primary_error) from None
-        self.active = self.fallback
+            if not e.fallback_allowed:
+                raise
+            self._activate_fallback(e, lang)
 
     def open_session(self, sink, lang: str, options) -> None:
+        if self.active is self.primary:
+            try:
+                self.primary.open_session(sink, lang, options)
+                return
+            except BackendUnavailable as e:
+                if not e.fallback_allowed:
+                    raise
+                try:
+                    self.primary.close_session()
+                except Exception:
+                    pass
+                self._activate_fallback(e, lang)
+
         if self.active is self.fallback and self.primary_error:
             first_line = self.primary_error.splitlines()[0]
             sink.put(("log", (translate(lang, "fallback_engaged", detail=first_line), "warning")))
         self.active.open_session(sink, lang, options)
+
+    def _activate_fallback(self, primary_error: BackendUnavailable, lang: str) -> None:
+        self.primary_error = str(primary_error)
+        try:
+            self.fallback.preflight(lang)
+        except BackendUnavailable:
+            # Report the preferred engine's problem: that is the one the user
+            # expected to use, and the rhwp installation status is shown in UI.
+            raise BackendUnavailable(self.primary_error) from None
+        self.active = self.fallback
 
     def session_notes(self, lang: str) -> list:
         return self.active.session_notes(lang)

@@ -85,8 +85,8 @@ def build_parser():
     parser.add_argument(
         "--rhwp-fallback",
         action="store_true",
-        help="If the conversion server cannot be reached, render PDFs locally "
-             "with rhwp. PDF only, and approximate -- see docs/remote-server.md.",
+        help="If local Hancom Office or the conversion server cannot start, render "
+             "PDFs locally with rhwp. PDF only and approximate.",
     )
     parser.add_argument(
         "--rhwp-path", default="", help="Path to the rhwp executable"

@@ -10,6 +10,8 @@ from pathlib import Path
 
 ROOT = Path(SPECPATH)
 ICON = ROOT / "assets" / "hwp_to_pdf_final.icns"
+RHWP_BINARY = ROOT / "vendor" / "rhwp" / "rhwp"
+RHWP_BINARIES = [(str(RHWP_BINARY), "vendor/rhwp")] if RHWP_BINARY.exists() else []
 
 sys.path.insert(0, str(ROOT / "src"))
 from hwp2pdf.version import __version__  # noqa: E402
@@ -26,7 +28,7 @@ LAZY_IMPORTS = [
 a_gui = Analysis(
     ["src/hwp2pdf/__main__.py"],
     pathex=[str(ROOT / "src")],
-    binaries=[],
+    binaries=RHWP_BINARIES,
     datas=[],
     hiddenimports=["_tkinter", "tkinterdnd2", *LAZY_IMPORTS],
     hookspath=[str(ROOT)],
@@ -91,7 +93,7 @@ app = BUNDLE(
 a_cli = Analysis(
     ["src/hwp2pdf/cli.py"],
     pathex=[str(ROOT / "src")],
-    binaries=[],
+    binaries=RHWP_BINARIES,
     datas=[],
     hiddenimports=LAZY_IMPORTS,
     hookspath=[str(ROOT)],

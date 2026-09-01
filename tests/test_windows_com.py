@@ -32,6 +32,23 @@ def test_preflight_raises_backend_unavailable_off_windows():
         WindowsComBackend().preflight("ko")
 
 
+def test_preflight_reports_missing_hancom_before_open_session(monkeypatch):
+    from hwp2pdf.backends import windows_com
+
+    monkeypatch.setattr(windows_com, "IS_WINDOWS", True)
+    monkeypatch.setattr(windows_com, "ensure_pywin32", lambda: (True, "ok"))
+    monkeypatch.setattr(
+        windows_com,
+        "probe_hwp",
+        lambda: {"installed": False, "detail": "COM ProgID missing", "running": []},
+    )
+
+    with pytest.raises(BackendUnavailable) as excinfo:
+        WindowsComBackend().preflight("ko")
+
+    assert "COM ProgID missing" in str(excinfo.value)
+
+
 @pytest.mark.skipif(os.name == "nt", reason="non-Windows degradation")
 def test_helpers_degrade_quietly_off_windows():
     assert ensure_pywin32()[0] is False

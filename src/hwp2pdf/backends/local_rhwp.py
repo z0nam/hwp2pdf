@@ -1,11 +1,11 @@
 """Local approximate PDF rendering with rhwp.
 
-A fallback for when the conversion server cannot be reached. rhwp is an
-independent HWP renderer, not Hancom's engine, so the output is close but not
-equivalent -- measured against Hangul on a 390-page report, rhwp paginated to
-390 pages instead of 379, dropped header and table-of-contents page numbers,
-and rendered some dashes as missing-glyph boxes. It is good enough to read a
-document now; it is not a substitute for a deliverable PDF.
+A fallback for when local Hancom Office or a remote conversion server cannot
+start. rhwp is an independent HWP renderer, not Hancom's engine, so the output
+is close but not equivalent -- measured against Hangul on a 390-page report,
+rhwp paginated to 390 pages instead of 379, dropped header and table-of-contents
+page numbers, and rendered some dashes as missing-glyph boxes. It is good enough
+to read a document now; it is not a substitute for a deliverable PDF.
 
 Nothing here is silent: the batch log and the CSV record which engine ran.
 """
@@ -13,6 +13,7 @@ Nothing here is silent: the batch log and the CSV record which engine ran.
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from hwp2pdf.backends.base import BackendCapabilities, BackendUnavailable, JobResult
@@ -25,9 +26,21 @@ ACTUAL_FORMAT = "rhwp"
 RHWP_ENV_VAR = "HWP2PDF_RHWP"
 
 def _vendored() -> tuple:
-    """Where scripts/fetch_rhwp.{sh,ps1} installs the binary."""
-    vendor = Path(__file__).resolve().parent.parent.parent.parent / "vendor" / "rhwp"
-    return (vendor / "rhwp", vendor / "rhwp.exe")
+    """Source-tree, packaged-data and executable-adjacent locations."""
+    roots = []
+    module_path = Path(__file__).resolve()
+    if len(module_path.parents) > 3:
+        roots.append(module_path.parents[3])  # source checkout: <root>/src/hwp2pdf/...
+    bundled_root = getattr(sys, "_MEIPASS", "")
+    if bundled_root:
+        roots.append(Path(bundled_root))
+    roots.append(Path(sys.executable).resolve().parent)
+
+    candidates = []
+    for root in roots:
+        vendor = root / "vendor" / "rhwp"
+        candidates.extend((vendor / "rhwp", vendor / "rhwp.exe"))
+    return tuple(dict.fromkeys(candidates))
 
 
 #: Checked in order when no explicit path is configured.

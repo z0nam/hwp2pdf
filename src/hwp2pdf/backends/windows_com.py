@@ -665,19 +665,30 @@ class WindowsComBackend:
         if not ok:
             raise BackendUnavailable(translate(lang, "pywin32_missing", detail=detail))
 
+        hwp_status = probe_hwp()
+        if not hwp_status.get("installed"):
+            raise BackendUnavailable(
+                translate(lang, "local_hwp_missing", detail=hwp_status.get("detail", ""))
+            )
+
     def open_session(self, sink, lang: str, options) -> None:
         import pythoncom
-        import win32com.client
 
         self._sink = sink
         self._session_lang = lang
 
-        sink.put(("log", translate(lang, "init_com")))
-        pythoncom.CoInitialize()
-        self._com_initialized = True
+        try:
+            sink.put(("log", translate(lang, "init_com")))
+            pythoncom.CoInitialize()
+            self._com_initialized = True
 
-        paths.temp_workdir().mkdir(parents=True, exist_ok=True)
-        self._start_engine(sink, lang)
+            paths.temp_workdir().mkdir(parents=True, exist_ok=True)
+            self._start_engine(sink, lang)
+        except Exception as e:
+            self.close_session()
+            raise BackendUnavailable(
+                translate(lang, "local_hwp_start_failed", detail=e)
+            ) from None
 
     def _start_engine(self, sink, lang: str) -> None:
         """Bring up an HwpObject and everything that hangs off it."""

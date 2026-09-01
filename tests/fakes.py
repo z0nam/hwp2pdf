@@ -43,10 +43,12 @@ class FakeBackend:
         local_preflight=True,
     )
 
-    def __init__(self, fail_on=(), blocked=None, unavailable=None, on_convert=None):
+    def __init__(self, fail_on=(), blocked=None, unavailable=None, open_unavailable=None,
+                 on_convert=None):
         self.fail_on = set(fail_on)
         self.blocked = dict(blocked or {})
         self.unavailable = unavailable
+        self.open_unavailable = open_unavailable
         self.on_convert = on_convert
         self.converted = []
         self.sessions_opened = 0
@@ -55,10 +57,16 @@ class FakeBackend:
 
     def preflight(self, lang):
         if self.unavailable:
+            if isinstance(self.unavailable, BackendUnavailable):
+                raise self.unavailable
             raise BackendUnavailable(self.unavailable)
 
     def open_session(self, sink, lang, options):
         self.sessions_opened += 1
+        if self.open_unavailable:
+            if isinstance(self.open_unavailable, BackendUnavailable):
+                raise self.open_unavailable
+            raise BackendUnavailable(self.open_unavailable)
         sink.put(("log", "fake session started"))
 
     def session_notes(self, lang):

@@ -44,6 +44,7 @@ VERSION="$("$PY_BIN" "$ROOT/scripts/set_version.py" $PIN_VERSION | tail -n 1)"
 echo "Build version: $VERSION"
 
 [ -f "$ROOT/assets/hwp_to_pdf_final.icns" ] || PYTHON="$PY_BIN" "$ROOT/scripts/make_icns.sh"
+[ -x "$ROOT/vendor/rhwp/rhwp" ] || "$ROOT/scripts/fetch_rhwp.sh"
 
 # --- build ----------------------------------------------------------------
 rm -rf "$ROOT/dist/hwp2pdf.app" "$ROOT/dist/hwp2pdf" "$ROOT/dist/hwp2pdf-cli"

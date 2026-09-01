@@ -16,11 +16,13 @@ from tkinterdnd2 import DND_FILES, TkinterDnD
 
 from hwp2pdf import config
 from hwp2pdf.backends import BackendUnavailable, create_backend
+from hwp2pdf.backends.local_rhwp import find_rhwp
 from hwp2pdf.backends.windows_com import (
     ensure_pywin32,
     get_hwp_processes,
     is_hwp_running,
     kill_hwp,
+    probe_hwp,
 )
 from hwp2pdf.constants import APP_NAME, APP_TITLE, enabled_extensions
 from hwp2pdf.i18n import LANGUAGE_CODES, LANGUAGE_LABELS, translate
@@ -376,6 +378,8 @@ STOP_BUTTON_PALETTE = {
     "disabled": ("#c7aaac", "#b18f92", "#9e7e81"),
 }
 
+ENGINE_STATUS_POLL_MS = 2500
+
 
 class ConverterApp:
     def __init__(self, root: tk.Tk):
@@ -416,7 +420,15 @@ class ConverterApp:
         self.transport_label_var = tk.StringVar()
         self.use_remote_var = tk.BooleanVar(value=not IS_WINDOWS or bool(server.get("url")))
         self.server_status_var = tk.StringVar()
+        self.hancom_install_status_var = tk.StringVar()
+        self.hwp_running_status_var = tk.StringVar()
+        self.rhwp_help_var = tk.StringVar()
+        self.rhwp_status_var = tk.StringVar()
         self.server_test_running = False
+        self.engine_status_check_running = False
+        self.engine_status_after_id = None
+        self._engine_status_snapshot = None
+        self._closing = False
         self._save_settings_job = None
 
         self.log_queue = queue.Queue()
@@ -455,6 +467,7 @@ class ConverterApp:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._apply_cached_update_state()
         self._poll_log_queue()
+        self._schedule_engine_status_refresh(100)
         self.root.after(1000, self.check_for_updates_if_due)
 
     def _register_drop_targets(self):
@@ -592,11 +605,47 @@ class ConverterApp:
         )
         self.ui["force_one_page_check"].grid(row=2, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
-        self.ui["rhwp_fallback_check"] = ttk.Checkbutton(opts, variable=self.rhwp_fallback_var)
-        self.ui["rhwp_fallback_check"].grid(row=3, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        engine_status = ttk.Frame(opts)
+        engine_status.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(10, 0))
+        engine_status.columnconfigure(1, weight=1)
+        self.ui["engine_status_title"] = ttk.Label(engine_status)
+        self.ui["engine_status_title"].grid(row=0, column=0, columnspan=2, sticky="w")
+        self.ui["hancom_install_status"] = ttk.Label(
+            engine_status,
+            textvariable=self.hancom_install_status_var,
+        )
+        self.ui["hancom_install_status"].grid(row=1, column=0, sticky="w", padx=(22, 24), pady=(3, 0))
+        self.ui["hwp_running_status"] = ttk.Label(
+            engine_status,
+            textvariable=self.hwp_running_status_var,
+        )
+        self.ui["hwp_running_status"].grid(row=1, column=1, sticky="w", pady=(3, 0))
+        self.ui["rhwp_fallback_status"] = ttk.Label(
+            engine_status,
+            textvariable=self.rhwp_status_var,
+            justify="left",
+        )
+        self.ui["rhwp_fallback_status"].grid(
+            row=2, column=0, columnspan=2, sticky="w", padx=(22, 0), pady=(3, 0)
+        )
+
+        rhwp_row = ttk.Frame(opts)
+        rhwp_row.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(8, 0))
+        self.ui["rhwp_fallback_check"] = ttk.Checkbutton(
+            rhwp_row, variable=self.rhwp_fallback_var
+        )
+        self.ui["rhwp_fallback_check"].pack(anchor="w")
+        self.ui["rhwp_fallback_help"] = ttk.Label(
+            rhwp_row,
+            textvariable=self.rhwp_help_var,
+            foreground="#666666",
+            wraplength=780,
+            justify="left",
+        )
+        self.ui["rhwp_fallback_help"].pack(anchor="w", padx=(22, 0), pady=(2, 0))
 
         timeout_row = ttk.Frame(opts)
-        timeout_row.grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        timeout_row.grid(row=5, column=0, columnspan=3, sticky="w", pady=(8, 0))
         self.ui["job_timeout_check"] = ttk.Checkbutton(
             timeout_row, variable=self.job_timeout_var, command=self._apply_timeout_state
         )
@@ -717,12 +766,15 @@ class ConverterApp:
         self.ui["remove_files_btn"].configure(text=self.tr("remove_selected"))
         self.ui["clear_files_btn"].configure(text=self.tr("clear_all"))
         self.ui["opts"].configure(text=self.tr("options"))
+        self.ui["engine_status_title"].configure(text=self.tr("engine_status_title"))
         self.recursive_check.configure(text=self.tr("include_subfolders"))
         self.ui["overwrite_check"].configure(text=self.tr("overwrite"))
         self.ui["output_label"].configure(text=self.tr("output"))
         self.ui["safe_temp_check"].configure(text=self.tr("safe_temp"))
         self.ui["force_one_page_check"].configure(text=self.tr("force_one_page"))
         self.ui["rhwp_fallback_check"].configure(text=self.tr("rhwp_fallback_option"))
+        self._apply_engine_status()
+        self._refresh_rhwp_ui()
         self.ui["job_timeout_check"].configure(text=self.tr("job_timeout_option"))
         self.ui["job_timeout_unit"].configure(text=self.tr("job_timeout_minutes"))
         self.ui["job_timeout_note"].configure(
@@ -1017,10 +1069,90 @@ class ConverterApp:
         self.ui["server_transport_combo"].configure(state="readonly" if remote else "disabled")
         if "job_timeout_check" in self.ui:
             self._apply_timeout_state()
+        if "rhwp_fallback_check" in self.ui:
+            self._refresh_rhwp_ui()
         if "notes_label" in self.ui:
             self.ui["notes_label"].configure(
                 text=self.tr("notes_remote" if remote else "notes")
             )
+
+    def _refresh_rhwp_ui(self):
+        """Show whether the optional local fallback can actually be used."""
+        configured_path = self.settings.get("rhwp_path", "")
+        binary = find_rhwp(configured_path)
+        mode_key = "rhwp_fallback_help_remote" if self.use_remote_backend() else "rhwp_fallback_help_local"
+        status_key = "rhwp_status_ready" if binary else "rhwp_status_missing"
+        self.rhwp_help_var.set(self.tr(mode_key))
+        self.rhwp_status_var.set(self.tr(status_key))
+        self.ui["rhwp_fallback_status"].configure(
+            foreground="#43785c" if binary else "#9b5b22"
+        )
+        self.ui["rhwp_fallback_check"].configure(state="normal" if binary else "disabled")
+        if binary is None and self.rhwp_fallback_var.get():
+            self.rhwp_fallback_var.set(False)
+
+    def _apply_engine_status(self, status=None):
+        """Render the last local Hancom installation/process snapshot."""
+        if status is not None:
+            self._engine_status_snapshot = status
+
+        install_label = self.ui["hancom_install_status"]
+        running_label = self.ui["hwp_running_status"]
+        if not IS_WINDOWS:
+            self.hancom_install_status_var.set(self.tr("hancom_install_unsupported"))
+            install_label.configure(foreground="#777777")
+            running_label.grid_remove()
+            return
+
+        snapshot = self._engine_status_snapshot
+        if snapshot is None:
+            self.hancom_install_status_var.set(self.tr("hancom_install_checking"))
+            install_label.configure(foreground="#777777")
+            running_label.grid_remove()
+            return
+
+        if not snapshot.get("installed"):
+            self.hancom_install_status_var.set(self.tr("hancom_install_missing"))
+            install_label.configure(foreground="#9b5b22")
+            running_label.grid_remove()
+            return
+
+        self.hancom_install_status_var.set(self.tr("hancom_install_ready"))
+        install_label.configure(foreground="#43785c")
+        running = bool(snapshot.get("running"))
+        self.hwp_running_status_var.set(
+            self.tr("hwp_status_running" if running else "hwp_status_not_running")
+        )
+        running_label.configure(foreground="#9b5b22" if running else "#43785c")
+        running_label.grid()
+
+    def _schedule_engine_status_refresh(self, delay_ms=ENGINE_STATUS_POLL_MS):
+        """Poll without blocking Tk; tasklist can briefly take noticeable time."""
+        if self._closing:
+            return
+        if not IS_WINDOWS:
+            self._apply_engine_status()
+            return
+        self.engine_status_after_id = self.root.after(
+            delay_ms, self._start_engine_status_refresh
+        )
+
+    def _start_engine_status_refresh(self):
+        self.engine_status_after_id = None
+        if self._closing:
+            return
+        if self.engine_status_check_running:
+            self._schedule_engine_status_refresh()
+            return
+        self.engine_status_check_running = True
+        threading.Thread(target=self._engine_status_worker, daemon=True).start()
+
+    def _engine_status_worker(self):
+        try:
+            status = probe_hwp()
+        except Exception as e:
+            status = {"installed": False, "detail": str(e), "running": []}
+        self.log_queue.put(("engine_status", status))
 
     def _apply_timeout_state(self):
         """The number only matters when the option is on, and only locally."""
@@ -1103,6 +1235,13 @@ class ConverterApp:
             return config.DEFAULTS["options"]["job_timeout_minutes"]
 
     def _on_close(self):
+        self._closing = True
+        if self.engine_status_after_id is not None:
+            try:
+                self.root.after_cancel(self.engine_status_after_id)
+            except Exception:
+                pass
+            self.engine_status_after_id = None
         self._save_settings()
         self.root.destroy()
 
@@ -1221,6 +1360,11 @@ class ConverterApp:
                         ))
                     else:
                         self.server_status_var.set(self.tr("server_test_failed", detail=detail))
+
+                elif kind == "engine_status":
+                    self.engine_status_check_running = False
+                    self._apply_engine_status(payload)
+                    self._schedule_engine_status_refresh()
 
                 elif kind == "error":
                     self.is_running = False
@@ -1500,22 +1644,25 @@ class ConverterApp:
         except Exception as e:
             self.log_queue.put(("update_done", ("error", "", "", "", str(e))))
 
-    def _confirm_local_engine_ready(self) -> bool:
-        ok, detail = ensure_pywin32()
-        if not ok:
-            messagebox.showerror(APP_TITLE, self.tr("pywin32_missing", detail=detail))
-            return False
+    def _confirm_local_engine_ready(self, output_formats, rhwp_path: str = "") -> str:
+        """Resolve an existing HWP process before starting the local engine.
 
+        Returns ``primary``, ``rhwp`` or ``cancel``. Missing pywin32/Hancom is
+        handled by backend preflight so the configured fallback gets a chance.
+        """
         hwp_processes = get_hwp_processes()
         if hwp_processes:
             process_detail = ", ".join(f"PID {process['pid']}" for process in hwp_processes)
-            answer = messagebox.askyesnocancel(
-                APP_TITLE,
-                self.tr("hwp_running_prompt", process_detail=process_detail),
+            action = self._ask_hwp_running_action(
+                process_detail,
+                allow_rhwp=find_rhwp(rhwp_path) is not None and "PDF" in output_formats,
+                docx_selected="DOCX" in output_formats,
             )
-            if answer is None:
-                return False
-            if answer is True:
+            if action == "cancel":
+                return "cancel"
+            if action == "rhwp":
+                return "rhwp"
+            if action == "kill":
                 hwp_processes = get_hwp_processes()
                 if not hwp_processes:
                     self.append_log(self.tr("hwp_closed_already"))
@@ -1528,7 +1675,7 @@ class ConverterApp:
                             APP_TITLE,
                             self.tr("hwp_kill_failed"),
                         )
-                        return False
+                        return "cancel"
                 else:
                     hwp_processes = get_hwp_processes()
                     if hwp_processes:
@@ -1537,9 +1684,91 @@ class ConverterApp:
                             APP_TITLE,
                             self.tr("hwp_kill_failed") + f"\n\n{process_detail}",
                         )
-                        return False
+                        return "cancel"
 
-        return True
+        return "primary"
+
+    def _ask_hwp_running_action(
+        self, process_detail: str, *, allow_rhwp: bool, docx_selected: bool
+    ) -> str:
+        """Show an explicit engine choice instead of an overloaded Yes/No box."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title(self.tr("hwp_running_title"))
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        result = {"value": "cancel"}
+
+        body = ttk.Frame(dialog, padding=18)
+        body.pack(fill="both", expand=True)
+        title_font = tkfont.nametofont("TkDefaultFont").copy()
+        title_font.configure(weight="bold")
+        ttk.Label(
+            body,
+            text=self.tr("hwp_running_heading"),
+            font=title_font,
+        ).pack(anchor="w")
+        ttk.Label(
+            body,
+            text=self.tr("hwp_running_message", process_detail=process_detail),
+            justify="left",
+            wraplength=560,
+        ).pack(anchor="w", pady=(8, 0))
+
+        if allow_rhwp:
+            note_key = "hwp_running_rhwp_docx_note" if docx_selected else "hwp_running_rhwp_note"
+            ttk.Label(
+                body,
+                text=self.tr(note_key),
+                foreground="#8a5a00",
+                justify="left",
+                wraplength=560,
+            ).pack(anchor="w", pady=(10, 0))
+
+        buttons = ttk.Frame(body)
+        buttons.pack(fill="x", pady=(16, 0))
+
+        def choose(value):
+            result["value"] = value
+            dialog.destroy()
+
+        first_button = None
+        if allow_rhwp:
+            first_button = ttk.Button(
+                buttons,
+                text=self.tr("hwp_action_rhwp"),
+                command=lambda: choose("rhwp"),
+            )
+            first_button.pack(side="left")
+
+        kill_button = ttk.Button(
+            buttons,
+            text=self.tr("hwp_action_kill"),
+            command=lambda: choose("kill"),
+        )
+        kill_button.pack(side="left", padx=((8 if allow_rhwp else 0), 0))
+        if first_button is None:
+            first_button = kill_button
+        ttk.Button(
+            buttons,
+            text=self.tr("hwp_action_continue"),
+            command=lambda: choose("continue"),
+        ).pack(side="left", padx=(8, 0))
+        ttk.Button(
+            buttons,
+            text=self.tr("hwp_action_cancel"),
+            command=lambda: choose("cancel"),
+        ).pack(side="right")
+
+        dialog.protocol("WM_DELETE_WINDOW", lambda: choose("cancel"))
+        dialog.bind("<Escape>", lambda _event: choose("cancel"))
+        dialog.update_idletasks()
+        x = self.root.winfo_rootx() + max(0, (self.root.winfo_width() - dialog.winfo_width()) // 2)
+        y = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - dialog.winfo_height()) // 2)
+        dialog.geometry(f"+{x}+{y}")
+        dialog.grab_set()
+        first_button.focus_set()
+        self.root.wait_window(dialog)
+        return result["value"]
 
     def start_conversion(self):
         if self.is_running:
@@ -1571,16 +1800,20 @@ class ConverterApp:
             messagebox.showerror(APP_TITLE, self.tr("select_output"))
             return
 
-        try:
-            backend = create_backend(self.backend_settings(), self.lang())
-        except BackendUnavailable as e:
-            messagebox.showerror(APP_TITLE, str(e))
-            return
-
-        # Only the local COM engine cares about pywin32 and stray Hwp.exe; a
-        # remote server reports its own problems through the conversion log.
-        if backend.capabilities.manages_hwp_process and not self._confirm_local_engine_ready():
-            return
+        rhwp = self.rhwp_options()
+        # Only the local COM engine cares about stray Hwp.exe. Missing COM or
+        # Hancom installation is resolved in the worker so rhwp can take over.
+        if IS_WINDOWS and not self.use_remote_backend():
+            action = self._confirm_local_engine_ready(output_formats, rhwp.get("path", ""))
+            if action == "cancel":
+                return
+            if action == "rhwp":
+                rhwp["enabled"] = True
+                rhwp["only"] = True
+                # The choice dialog already explains that this one-run engine
+                # is PDF-only; do not turn the intentionally omitted DOCX into
+                # a failed job and CSV error.
+                output_formats = ("PDF",)
 
         self.stop_requested = False
         self.is_running = True
@@ -1604,7 +1837,7 @@ class ConverterApp:
                 lang,
                 self.backend_settings(),
                 self.job_timeout_seconds(),
-                self.rhwp_options(),
+                rhwp,
             ),
             daemon=True,
         )
@@ -1645,6 +1878,7 @@ class ConverterApp:
                 backend_settings, lang,
                 rhwp_fallback=bool(rhwp.get("enabled")),
                 rhwp_path=rhwp.get("path", ""),
+                rhwp_only=bool(rhwp.get("only")),
             )
         except BackendUnavailable as e:
             self.log_queue.put(("error", str(e)))

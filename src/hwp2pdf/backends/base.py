@@ -12,10 +12,17 @@ from typing import Protocol
 
 
 class BackendUnavailable(Exception):
-    """Raised by ``preflight`` when the backend cannot run at all.
+    """Raised when a backend cannot start a conversion session.
 
     The message is already localized and is shown to the user as-is.
+    ``fallback_allowed`` is false for configuration errors such as a bad token
+    or an incompatible server protocol: silently using another engine would
+    hide a problem the user needs to fix.
     """
+
+    def __init__(self, message: str, *, fallback_allowed: bool = True):
+        super().__init__(message)
+        self.fallback_allowed = fallback_allowed
 
 
 @dataclass(frozen=True)

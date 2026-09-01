@@ -93,6 +93,11 @@ The wire contract is documented in [protocol.md](protocol.md); setup instruction
 - Safe temp conversion through `C:\temp\hwp_convert_safe`
 - Progress UI
 - Estimated HWP/HWPX file count below the selected target path
+- Optional rhwp emergency PDF fallback when local Hancom Office or the remote
+  conversion server cannot start. It is approximate, PDF-only, and remains off
+  by default; packaged desktop builds include the platform binary.
+- GUI conversion-engine status: Windows shows local Hancom installation and
+  live HWP-process state; macOS shows that local Hancom automation is unavailable.
 
 CLI usage is exposed through the `hwp2pdf` console script and the packaged
 `hwp2pdf-cli-YYYY.MM.DD.N.exe` / installed `hwp2pdf-cli.exe`. `python -m hwp2pdf`

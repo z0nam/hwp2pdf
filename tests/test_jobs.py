@@ -272,6 +272,18 @@ def test_unavailable_backend_reports_error(tmp_path):
     assert sink.done() is None
 
 
+def test_backend_that_cannot_open_a_session_reports_a_startup_error(tmp_path):
+    make_files(tmp_path, "a.hwp")
+    backend = FakeBackend(open_unavailable="한컴 시작 실패")
+
+    sink, backend = run(tmp_path, backend=backend)
+
+    assert sink.of_kind("error") == ["한컴 시작 실패"]
+    assert backend.sessions_opened == 1
+    assert backend.converted == []
+    assert sink.done() is None
+
+
 @pytest.mark.parametrize("lang", ["ko", "en"])
 def test_csv_header_is_localized(tmp_path, lang):
     make_files(tmp_path, "a.hwp")

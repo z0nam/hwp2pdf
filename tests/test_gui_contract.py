@@ -225,6 +225,102 @@ def test_remote_conversion_defers_to_the_server(app):
     assert app.ui["job_timeout_note"].cget("text")
 
 
+def test_windows_engine_status_shows_running_only_when_hancom_is_installed(app, monkeypatch):
+    monkeypatch.setattr("hwp2pdf.app.IS_WINDOWS", True)
+
+    app._apply_engine_status({"installed": True, "running": ["123"]})
+    assert app.hancom_install_status_var.get() == app.tr("hancom_install_ready")
+    assert app.hwp_running_status_var.get() == app.tr("hwp_status_running")
+    assert app.ui["hwp_running_status"].winfo_manager() == "grid"
+
+    app._apply_engine_status({"installed": True, "running": []})
+    assert app.hwp_running_status_var.get() == app.tr("hwp_status_not_running")
+
+    app._apply_engine_status({"installed": False, "running": []})
+    assert app.hancom_install_status_var.get() == app.tr("hancom_install_missing")
+    assert app.ui["hwp_running_status"].winfo_manager() == ""
+
+
+def test_macos_engine_status_hides_the_local_process_row(app, monkeypatch):
+    monkeypatch.setattr("hwp2pdf.app.IS_WINDOWS", False)
+    app._apply_engine_status({"installed": True, "running": ["123"]})
+
+    assert app.hancom_install_status_var.get() == app.tr("hancom_install_unsupported")
+    assert app.ui["hwp_running_status"].winfo_manager() == ""
+
+
+def test_engine_status_probe_result_is_sent_to_the_gui_queue(app, monkeypatch):
+    expected = {"installed": True, "detail": "registered", "running": ["321"]}
+    monkeypatch.setattr("hwp2pdf.app.probe_hwp", lambda: expected)
+
+    app._engine_status_worker()
+
+    assert app.log_queue.get_nowait() == ("engine_status", expected)
+
+
+def test_rhwp_option_explains_mode_and_availability(app, monkeypatch, tmp_path):
+    binary = tmp_path / "rhwp.exe"
+    binary.write_bytes(b"exe")
+    monkeypatch.setattr("hwp2pdf.app.find_rhwp", lambda _path="": binary)
+
+    app.use_remote_var.set(False)
+    app._refresh_rhwp_ui()
+    assert app.rhwp_help_var.get() == app.tr("rhwp_fallback_help_local")
+    assert app.rhwp_status_var.get() == app.tr("rhwp_status_ready")
+    assert str(app.ui["rhwp_fallback_check"].cget("state")) == "normal"
+
+    app.use_remote_var.set(True)
+    app._refresh_rhwp_ui()
+    assert app.rhwp_help_var.get() == app.tr("rhwp_fallback_help_remote")
+
+
+def test_missing_rhwp_disables_the_fallback_option(app, monkeypatch):
+    monkeypatch.setattr("hwp2pdf.app.find_rhwp", lambda _path="": None)
+    app.rhwp_fallback_var.set(True)
+    app._refresh_rhwp_ui()
+
+    assert app.rhwp_fallback_var.get() is False
+    assert str(app.ui["rhwp_fallback_check"].cget("state")) == "disabled"
+    assert app.tr("rhwp_status_missing") in app.rhwp_status_var.get()
+
+
+def test_running_hwp_can_use_rhwp_for_this_run(app, monkeypatch, tmp_path):
+    binary = tmp_path / "rhwp.exe"
+    binary.write_bytes(b"exe")
+    monkeypatch.setattr("hwp2pdf.app.get_hwp_processes", lambda: [{"pid": "123", "name": "Hwp.exe"}])
+    monkeypatch.setattr("hwp2pdf.app.find_rhwp", lambda _path="": binary)
+    monkeypatch.setattr(app, "_ask_hwp_running_action", lambda *a, **k: "rhwp")
+
+    assert app._confirm_local_engine_ready(("PDF", "DOCX")) == "rhwp"
+
+
+def test_one_run_rhwp_choice_omits_docx_without_recording_a_failure(app, monkeypatch, tmp_path):
+    if not IS_WINDOWS:
+        pytest.skip("local HWP process choice is Windows-only")
+    source = tmp_path / "a.hwp"
+    source.write_bytes(b"x")
+    app._set_file_targets([source], append=False)
+    app.output_pdf_var.set(True)
+    app.output_docx_var.set(True)
+    monkeypatch.setattr(app, "_confirm_local_engine_ready", lambda *a, **k: "rhwp")
+
+    captured = {}
+
+    class PendingThread:
+        def __init__(self, *, target, args, daemon):
+            captured.update(target=target, args=args, daemon=daemon)
+
+        def start(self):
+            captured["started"] = True
+
+    monkeypatch.setattr("hwp2pdf.app.threading.Thread", PendingThread)
+    app.start_conversion()
+
+    assert captured["started"] is True
+    assert captured["args"][5] == ("PDF",)
+    assert captured["args"][9]["only"] is True
+
+
 def test_a_nonsense_minutes_value_disables_rather_than_crashes(app):
     app.use_remote_var.set(False)
     app.job_timeout_var.set(True)

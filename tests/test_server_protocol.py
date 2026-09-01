@@ -194,8 +194,9 @@ def test_session_is_closed_when_the_batch_ends(tmp_path, server):
 # -- failure modes -------------------------------------------------------
 def test_bad_token_surfaces_as_backend_unavailable(tmp_path, server):
     backend = client(server, token="nope")
-    with pytest.raises(BackendUnavailable):
+    with pytest.raises(BackendUnavailable) as excinfo:
         backend.preflight("ko")
+    assert excinfo.value.fallback_allowed is False
 
 
 def test_missing_url_surfaces_as_backend_unavailable():

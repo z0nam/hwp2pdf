@@ -43,8 +43,10 @@ DEFAULTS = {
         "force_one_page": True,
         "formats": ["PDF"],
         "job_timeout_enabled": False,
-        "job_timeout_minutes": 30,
-        # Approximate local rendering when the server cannot be reached.
+        # Conservative opt-in recovery limit for a single local conversion.
+        # Existing settings are preserved by _merge when loading.
+        "job_timeout_minutes": 10,
+        # Approximate local rendering when the preferred Hancom engine cannot start.
         "rhwp_fallback": False,
     },
     "last_target": "",

@@ -75,6 +75,14 @@ if ($LASTEXITCODE -ne 0 -or -not $Version) {
 }
 Write-Host "Build version: $Version"
 
+$RhwpBinary = Join-Path $Root "vendor\rhwp\rhwp.exe"
+if (-not (Test-Path $RhwpBinary)) {
+    & (Join-Path $Root "scripts\fetch_rhwp.ps1")
+    if ($LASTEXITCODE -ne 0 -or -not (Test-Path $RhwpBinary)) {
+        throw "Failed to prepare the bundled rhwp fallback"
+    }
+}
+
 Invoke-Native $Python @("-m", "pip", "install", "--upgrade", "pip")
 Invoke-Native $Python @("-m", "pip", "install", "-r", (Join-Path $Root "requirements-build.txt"))
 Invoke-Native $Python @("-m", "PyInstaller", "--clean", "--noconfirm", (Join-Path $Root "hwp2pdf.spec"))
