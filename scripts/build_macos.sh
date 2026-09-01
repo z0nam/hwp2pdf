@@ -72,7 +72,8 @@ cp -R "$APP" "$STAGE/"
 cp "$CLI" "$STAGE/"
 cp "$ROOT/THIRD_PARTY_NOTICES.md" "$STAGE/"
 # ditto, not zip: it preserves the code signature and symlinks inside the app.
-ditto -c -k --sequesterRsrc --keepParent "$STAGE" "$ZIP"
+# Archive the staging directory's contents, not its random mktemp directory name.
+ditto -c -k --sequesterRsrc "$STAGE/" "$ZIP"
 
 echo
 echo "  app : $APP"
