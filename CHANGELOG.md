@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [2026.09.01.1] - 2026-09-01
+
 ### Added
 - **서버 불가 시 rhwp 대체 변환** (기본 꺼짐). 변환 서버에 연결할 수 없을 때 로컬
   rhwp로 PDF를 만듭니다. 옵션의 체크박스 또는 CLI `--rhwp-fallback`으로 켭니다.
@@ -211,7 +213,9 @@
 
 ---
 
-[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.08.25.1...HEAD
+[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.09.01.1...HEAD
+[2026.09.01.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.01.1
+[2026.08.28.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.08.28.1
 [2026.08.25.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.08.25.1
 [2026.07.31.3]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.07.31.3
 [2026.07.30.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.07.30.1

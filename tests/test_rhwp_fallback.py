@@ -126,7 +126,7 @@ def test_real_rhwp_renders_a_pdf_and_is_labelled(tmp_path):
     sink = RecordingSink()
     jobs.run_batch(
         sink,
-        create_backend({"url": ""}, "ko", rhwp_fallback=True),
+        RhwpBackend(),
         target=str(tmp_path), recursive=False, overwrite=True, use_safe_copy=False,
         force_one_page=True, output_formats=("PDF",), lang="ko",
     )
@@ -147,7 +147,7 @@ def test_real_rhwp_refuses_docx(tmp_path):
     sink = RecordingSink()
     jobs.run_batch(
         sink,
-        create_backend({"url": ""}, "ko", rhwp_fallback=True),
+        RhwpBackend(),
         target=str(tmp_path), recursive=False, overwrite=True, use_safe_copy=False,
         force_one_page=True, output_formats=("DOCX",), lang="ko",
     )
