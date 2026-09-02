@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [2026.09.02.3] - 2026-09-02
+
 ### Added
 - 서버 주소를 몰라도 붙을 수 있는 경로를 추가했습니다.
   - **초대 문자열**: 서버가 시작할 때 로그에 `hwp2pdf://...` 한 줄을 찍습니다.
@@ -263,7 +265,10 @@
 
 ---
 
-[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.09.01.1...HEAD
+[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.09.02.3...HEAD
+[2026.09.02.3]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.02.3
+[2026.09.02.2]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.02.2
+[2026.09.02.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.02.1
 [2026.09.01.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.01.1
 [2026.08.28.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.08.28.1
 [2026.08.25.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.08.25.1
