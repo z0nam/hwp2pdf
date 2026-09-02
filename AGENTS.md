@@ -24,20 +24,19 @@ Treat the code and tests as authoritative when older context disagrees with the 
 
 ## Releases
 
-macOS builds are produced by CI, not by hand. Publishing a GitHub release fires
-`.github/workflows/release-macos.yml`, which builds arm64 and Intel on GitHub's
-own Mac runners and attaches both zips to that release.
+Every artifact is produced by CI, not by hand. Publishing a GitHub release fires
+`.github/workflows/release.yml`, which builds macOS arm64, macOS Intel and the
+Windows executables plus installer, and attaches all seven files to that
+release.
 
-- **Do not build or upload macOS artifacts manually.** If a release is missing
-  them, re-run the workflow (`gh workflow run release-macos.yml -f tag=vX`)
-  rather than building locally; a hand-built zip may not match the tag.
-- The Windows executables are still built by hand with `scripts/build_windows.ps1`
-  and `scripts/build_installer.ps1`, then uploaded with `gh release upload`.
-  Note that *building* them needs neither Hancom Office nor COM -- only
-  `check_windows.ps1` and actual conversion do. Moving the Windows build to CI
-  is therefore possible and is the obvious next step.
-- After publishing, confirm the release ends up with both Windows and macOS
-  assets. CI failures show up on the Actions tab, not in the release itself.
+- **Do not build or upload release artifacts manually.** If a release is missing
+  some, re-run the workflow (`gh workflow run release.yml -f tag=vX`) rather
+  than building locally; a hand-built artifact may not match the tag.
+- Building needs neither Hancom Office nor COM. Only `check_windows.ps1` and
+  actual conversion do, which is why the Windows build can run on a plain
+  GitHub runner.
+- After publishing, confirm the release ends up with all seven assets. CI
+  failures show up on the Actions tab, not in the release itself.
 
 ## Working across the two machines
 

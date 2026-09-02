@@ -1,0 +1,129 @@
+# Build every platform's artifacts and attach them to a release.
+#
+# Building needs neither Hancom Office nor COM -- only running a conversion
+# does -- so the Windows executables are built here too. Publishing a release is
+# all it takes to get the full set.
+name: release
+
+on:
+  release:
+    types: [published]
+  # Lets an existing release be filled in after the fact.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build and upload to (e.g. v2026.09.02.2)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26
+            arch: arm64
+          - runner: macos-26-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          tag="${{ github.event.release.tag_name || inputs.tag }}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check the interpreter can build a GUI
+        run: |
+          # build_macos.sh refuses Tk 8.5; fail here with a clear reason instead
+          # of somewhere inside PyInstaller.
+          python3 -c "import sys, tkinter; print(sys.executable, 'Tk', tkinter.TkVersion)"
+
+      - name: Build
+        env:
+          PYTHON: python3
+        run: ./scripts/build_macos.sh "${{ steps.tag.outputs.version }}"
+
+      - name: Verify the built binary matches this runner
+        run: |
+          expected="${{ matrix.arch }}"
+          got=$(lipo -archs dist/hwp2pdf-cli)
+          echo "expected=$expected got=$got"
+          [ "$got" = "$expected" ] || { echo "::error::built $got on a $expected runner"; exit 1; }
+          ./dist/hwp2pdf-cli --version
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ steps.tag.outputs.tag }}" \
+            release/hwp2pdf-macos-${{ matrix.arch }}-${{ steps.tag.outputs.version }}.zip \
+            --clobber
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Resolve tag
+        id: tag
+        shell: bash
+        run: |
+          tag="${{ github.event.release.tag_name || inputs.tag }}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Fetch rhwp
+        shell: pwsh
+        run: .\scripts\fetch_rhwp.ps1
+
+      - name: Build executables
+        shell: pwsh
+        run: .\scripts\build_windows.ps1 -Version "${{ steps.tag.outputs.version }}"
+
+      - name: Build installer
+        shell: pwsh
+        # Inno Setup 6 is preinstalled on the runner image.
+        run: .\scripts\build_installer.ps1
+
+      - name: Check the executables report the right version
+        shell: pwsh
+        run: |
+          $exe = "dist\hwp2pdf-cli-${{ steps.tag.outputs.version }}.exe"
+          $reported = (& $exe --version) -join ""
+          Write-Host "reported: $reported"
+          if ($reported -notmatch [regex]::Escape("${{ steps.tag.outputs.version }}")) {
+              throw "version mismatch: $reported"
+          }
+
+      - name: Upload to the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = "${{ steps.tag.outputs.version }}"
+          gh release upload "${{ steps.tag.outputs.tag }}" `
+            "dist\hwp2pdf-$v.exe" `
+            "dist\hwp2pdf-cli-$v.exe" `
+            "dist\hwp2pdf-serve-$v.exe" `
+            "release\hwp2pdf-setup-$v.exe" `
+            "release\hwp2pdf-windows-$v.zip" `
+            --clobber

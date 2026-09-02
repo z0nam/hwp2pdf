@@ -111,29 +111,45 @@ copying whenever the branch is already pushed.
 
 ## Release Flow
 
-`CHANGELOG.md` is the single source of truth for the release history; the
-GitHub Release page mirrors it. When cutting a release:
+`CHANGELOG.md` is the single source of truth for the release history; the GitHub
+Release page mirrors it. Every artifact is built by CI, so no machine has to be
+switched on and nothing is uploaded by hand.
 
 1. Move the relevant entries out of `## [Unreleased]` into a new
    `## [yyyy.MM.dd.N] - yyyy-MM-dd` section, and add the matching link
    reference at the bottom of the file.
-2. Run `scripts/build_windows.ps1` then `scripts/build_installer.ps1` — these
-   stamp `src/hwp2pdf/version.py` to match the date / build number.
-3. macOS builds happen automatically. Publishing the release (step 6) triggers
-   `.github/workflows/release-macos.yml`, which builds arm64 and Intel on
-   GitHub's Mac runners and attaches both zips. Nothing to do by hand, and no
-   Mac needs to be switched on.
-4. Commit `CHANGELOG.md` + `src/hwp2pdf/version.py` together, then push.
+2. Stamp the version:
+
+   ```bash
+   python scripts/set_version.py yyyy.MM.dd.N
+   ```
+
+3. Commit `CHANGELOG.md` + `src/hwp2pdf/version.py` together, then push.
+4. Publish the release. Creating it is what triggers the build:
+
+   ```bash
+   gh release create vYYYY.MM.DD.N --title vYYYY.MM.DD.N --notes-file notes.md
+   ```
+
+   `.github/workflows/release.yml` then builds macOS arm64, macOS Intel, the
+   three Windows executables and the installer, and attaches all seven files.
+   It takes a few minutes; watch it on the Actions tab.
 5. If this release changed `API_VERSION` in `src/hwp2pdf/server/protocol.py`,
    update the conversion server machines in the same pass: the client compares
    that value and refuses a server reporting a different one. Otherwise the
-   server can be updated whenever convenient -- build versions do not have to
+   server can be updated whenever convenient — build versions do not have to
    match, only the protocol does. A mismatch fails closed with a clear message
    rather than misbehaving.
-6. `gh release create vYYYY.MM.DD.N --notes-file -` (or paste the same
-   section body) and attach `release/hwp2pdf-setup-*.exe`,
-   `release/hwp2pdf-windows-*.zip`, `dist/hwp2pdf-*.exe`,
-   `dist/hwp2pdf-cli-*.exe`, and `release/hwp2pdf-macos-*.zip`.
+6. Confirm the release ended up with all seven assets. If any are missing, the
+   build failed — fix it and re-run rather than uploading by hand:
+
+   ```bash
+   gh workflow run release.yml -f tag=vYYYY.MM.DD.N
+   ```
+
+Building requires neither Hancom Office nor COM, which is why the Windows
+artifacts can be produced on a stock GitHub runner. Only `check_windows.ps1`
+and actual conversion need a machine with Hangul installed.
 
 ## Contributors
 
