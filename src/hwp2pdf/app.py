@@ -917,6 +917,25 @@ class ConverterApp:
         self._refresh_file_target_list()
         self._update_file_count_estimate()
 
+    def _remove_completed_file_target(self, path: Path):
+        """Remove one successfully converted explicit target, if it is still listed."""
+        completed_key = self._target_key(path)
+        remaining = [
+            target for target in self.selected_files
+            if self._target_key(target) != completed_key
+        ]
+        if len(remaining) == len(self.selected_files):
+            return
+
+        self.selected_files = remaining
+        self._updating_file_targets = True
+        try:
+            self.folder_var.set(str(remaining[0]) if remaining else "")
+        finally:
+            self._updating_file_targets = False
+        self._refresh_file_target_list()
+        self._update_file_count_estimate()
+
     def clear_selected_files(self):
         if not self.selected_files:
             return
@@ -1316,6 +1335,9 @@ class ConverterApp:
                     self.progress["maximum"] = max(total, 1)
                     self.progress["value"] = current
                     self.progress_label_var.set(label)
+
+                elif kind == "file_completed":
+                    self._remove_completed_file_target(Path(payload))
 
                 elif kind == "done":
                     success, failed, skipped, log_csv, all_success = payload

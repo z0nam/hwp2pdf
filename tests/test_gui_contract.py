@@ -157,6 +157,20 @@ def test_clear_and_remove_selected(app, tmp_path):
     assert app.ui["file_list_frame"].winfo_manager() != "grid"
 
 
+def test_successful_file_target_is_removed_but_other_targets_remain(app, tmp_path):
+    first = tmp_path / "a.hwp"
+    second = tmp_path / "b.hwp"
+    first.write_bytes(b"x")
+    second.write_bytes(b"x")
+    app._set_file_targets([first, second], append=False)
+
+    app._remove_completed_file_target(first)
+
+    assert app.selected_files == [second]
+    assert app.folder_var.get() == str(second)
+    assert app.file_listbox.size() == 1
+
+
 def test_completion_no_longer_opens_a_blocking_dialog(app, monkeypatch):
     """The done handler writes to the log instead of a modal messagebox."""
     import tkinter.messagebox as messagebox

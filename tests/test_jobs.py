@@ -86,6 +86,18 @@ def test_happy_path_writes_output_and_removes_csv(tmp_path):
     # A fully clean run deletes its own audit log.
     assert not (tmp_path / jobs.LOG_CSV_NAME).exists()
     assert sink.done() == (2, 0, 0, str(tmp_path / jobs.LOG_CSV_NAME), True)
+    assert sink.of_kind("file_completed") == [
+        str(tmp_path / "a.hwp"), str(tmp_path / "b.hwpx")
+    ]
+
+
+def test_file_completed_requires_every_requested_format_to_succeed(tmp_path):
+    make_files(tmp_path, "a.hwp", "b.hwp")
+    backend = FakeBackend(fail_on={"a.hwp"})
+
+    sink, _ = run(tmp_path, backend=backend, output_formats=("PDF", "DOCX"))
+
+    assert sink.of_kind("file_completed") == [str(tmp_path / "b.hwp")]
 
 
 def test_total_jobs_is_files_times_formats(tmp_path):

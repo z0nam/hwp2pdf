@@ -166,6 +166,11 @@ def run_batch(
                 job_index = 0
                 for file_index, src_path in enumerate(files, start=1):
                     src_path = Path(src_path)
+                    # A selected source leaves the GUI list only if every requested
+                    # output was actually converted. Skipped and failed files stay
+                    # visible so the user can deliberately retry them.
+                    file_succeeded = True
+                    completed_formats = 0
 
                     sink.put(("log", translate(lang, "processing", path=src_path)))
 
@@ -210,6 +215,7 @@ def run_batch(
                                     output_size = 1
 
                                 if output_size > 0:
+                                    file_succeeded = False
                                     skipped += 1
                                     msg = translate(lang, "skipped_exists", format=output_format)
                                     writer.writerow(["SKIPPED", str(src_path), str(output_path), msg])
@@ -243,6 +249,7 @@ def run_batch(
 
                             blocked_reason = backend.blocked_reason(src_path, output_format, lang)
                             if blocked_reason:
+                                file_succeeded = False
                                 failed += 1
                                 writer.writerow(["FAILED", str(src_path), str(output_path), blocked_reason])
                                 f.flush()
@@ -320,6 +327,7 @@ def run_batch(
                                 shutil.move(str(temp_output), str(output_path))
 
                             success += 1
+                            completed_formats += 1
                             writer.writerow(["OK", str(src_path), str(output_path), ""])
                             f.flush()
                             sink.put(
@@ -336,6 +344,7 @@ def run_batch(
                             )
 
                         except Exception as e:
+                            file_succeeded = False
                             failed += 1
                             failure_message = str(e)
                             writer.writerow(["FAILED", str(src_path), str(output_path), failure_message])
@@ -374,6 +383,13 @@ def run_batch(
                                 ),
                             )
                         )
+
+                    if (
+                        file_succeeded
+                        and completed_formats == len(output_formats)
+                        and not stopped
+                    ):
+                        sink.put(("file_completed", str(src_path)))
 
                     if is_stopped():
                         signal_cancel()
