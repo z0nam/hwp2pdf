@@ -6,9 +6,11 @@ pytest.importorskip("tkinter")
 pytest.importorskip("tkinterdnd2")
 
 import tkinter as tk  # noqa: E402
+from tkinter import ttk  # noqa: E402
 from tkinterdnd2 import TkinterDnD  # noqa: E402
 
-from hwp2pdf import config  # noqa: E402
+from hwp2pdf import config, discovery  # noqa: E402
+from hwp2pdf.server.protocol import DEFAULT_PORT  # noqa: E402
 from hwp2pdf.app import ConverterApp  # noqa: E402
 from hwp2pdf.i18n import TEXT  # noqa: E402
 from hwp2pdf.paths import IS_WINDOWS  # noqa: E402
@@ -277,9 +279,15 @@ def test_rhwp_option_explains_mode_and_availability(app, monkeypatch, tmp_path):
     binary.write_bytes(b"exe")
     monkeypatch.setattr("hwp2pdf.app.find_rhwp", lambda _path="": binary)
 
+    if IS_WINDOWS:
+        # use_remote_backend() is pinned to True off Windows -- there is no
+        # local Hancom engine to fall back from -- so only Windows sees this.
+        app.use_remote_var.set(False)
+        app._refresh_rhwp_ui()
+        assert app.rhwp_help_var.get() == app.tr("rhwp_fallback_help_local")
+
     app.use_remote_var.set(False)
     app._refresh_rhwp_ui()
-    assert app.rhwp_help_var.get() == app.tr("rhwp_fallback_help_local")
     assert app.rhwp_status_var.get() == app.tr("rhwp_status_ready")
     assert str(app.ui["rhwp_fallback_check"].cget("state")) == "normal"
 
@@ -351,3 +359,104 @@ def test_timeout_settings_persist(app, tmp_path):
     saved = config.load(tmp_path / "settings.json")
     assert saved["options"]["job_timeout_enabled"] is True
     assert saved["options"]["job_timeout_minutes"] == 45
+
+
+# -- reaching a server ---------------------------------------------------
+
+def test_a_bare_host_name_becomes_a_full_address(app):
+    app.use_remote_var.set(True)
+    app.server_url_var.set("namun-ji")
+    assert app.backend_settings()["url"] == f"http://namun-ji:{DEFAULT_PORT}"
+    # The field itself is rewritten, so the user sees what will be used.
+    assert app.server_url_var.get() == f"http://namun-ji:{DEFAULT_PORT}"
+
+
+def test_pasting_an_invite_fills_in_the_token_too(app):
+    app.use_remote_var.set(True)
+    app.server_url_var.set(discovery.make_invite("namun-ji", "s3cr3t"))
+    app._on_address_entered()
+
+    assert app.server_url_var.get() == f"http://namun-ji:{DEFAULT_PORT}"
+    assert app.server_token_var.get() == "s3cr3t"
+    assert app.server_status_var.get() == app.tr("server_invite_applied")
+
+
+def test_an_address_that_makes_no_sense_is_reported_and_left_alone(app):
+    app.use_remote_var.set(True)
+    app.server_url_var.set("ftp://nope")
+    app._on_address_entered()
+
+    # Left in place: the user has to see the typo to fix it.
+    assert app.server_url_var.get() == "ftp://nope"
+    assert app.server_status_var.get() == app.tr("server_address_invalid", value="ftp://nope")
+
+
+def test_finding_nothing_says_so_instead_of_failing(app, monkeypatch):
+    app.use_remote_var.set(True)
+    monkeypatch.setattr("hwp2pdf.discovery.discover", list)
+
+    app.find_servers()                  # disables the button, queues nothing yet
+    assert str(app.ui["server_find_btn"].cget("state")) == "disabled"
+    app._find_servers_worker()          # what the worker thread would do
+    app._poll_log_queue()               # what the UI does with the result
+
+    assert app.server_find_running is False
+    assert app.server_status_var.get() == app.tr("server_find_none")
+    assert str(app.ui["server_find_btn"].cget("state")) == "normal"
+
+
+def test_discovery_failing_outright_is_not_fatal(app, monkeypatch):
+    def explode():
+        raise OSError("no network")
+
+    monkeypatch.setattr("hwp2pdf.discovery.discover", explode)
+    app._find_servers_worker()
+    assert app.log_queue.get_nowait() == ("server_find", [])
+
+
+FOUND = [
+    {"url": "http://100.64.0.1:17650", "name": "namun-ji", "version": "2026.09.02.2",
+     "api": 1, "auth_required": True, "compatible": True, "via": discovery.VIA_TAILSCALE},
+    {"url": "http://192.168.0.5:17650", "name": "old-box", "version": "2025.01.01.1",
+     "api": 0, "auth_required": False, "compatible": False, "via": discovery.VIA_LAN},
+]
+
+
+def _found_tree(dialog):
+    return next(
+        child for child in dialog.winfo_children() if isinstance(child, ttk.Treeview)
+    )
+
+
+def _dialog_button(dialog, label):
+    for frame in dialog.winfo_children():
+        for child in frame.winfo_children():
+            if isinstance(child, ttk.Button) and child.cget("text") == label:
+                return child
+    raise AssertionError(f"no {label!r} button in the dialog")
+
+
+def test_the_found_list_shows_why_each_server_may_not_work(app):
+    dialog = app._choose_server(FOUND)
+    try:
+        rows = [_found_tree(dialog).item(item, "values")
+                for item in _found_tree(dialog).get_children()]
+        assert [row[1] for row in rows] == [server["url"] for server in FOUND]
+        assert app.tr("server_find_via_tailscale") in rows[0][3]
+        assert app.tr("server_find_needs_token") in rows[0][3]
+        assert app.tr("server_find_incompatible") in rows[1][3]
+    finally:
+        dialog.destroy()
+
+
+def test_picking_a_server_that_needs_a_token_stops_to_ask_for_one(app):
+    app.use_remote_var.set(True)
+    app.server_token_var.set("")
+    dialog = app._choose_server(FOUND)
+    _found_tree(dialog).selection_set("0")
+    _dialog_button(dialog, app.tr("server_find_select")).invoke()
+
+    assert app.server_url_var.get() == FOUND[0]["url"]
+    # No connection test fires while the token box is still empty.
+    assert app.server_test_running is False
+    assert app.server_status_var.get() == app.tr("server_find_needs_token")

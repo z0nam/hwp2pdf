@@ -25,6 +25,7 @@ from hwp2pdf.backends.windows_com import (
     probe_hwp,
 )
 from hwp2pdf.constants import APP_NAME, APP_TITLE, enabled_extensions
+from hwp2pdf import discovery
 from hwp2pdf.i18n import LANGUAGE_CODES, LANGUAGE_LABELS, translate
 from hwp2pdf.jobs import collect_files, run_batch
 from hwp2pdf.paths import IS_WINDOWS, reveal_in_file_manager
@@ -425,6 +426,7 @@ class ConverterApp:
         self.rhwp_help_var = tk.StringVar()
         self.rhwp_status_var = tk.StringVar()
         self.server_test_running = False
+        self.server_find_running = False
         self.engine_status_check_running = False
         self.engine_status_after_id = None
         self._engine_status_snapshot = None
@@ -674,8 +676,17 @@ class ConverterApp:
         self.ui["server_address_label"].grid(row=1, column=0, sticky="w", padx=(0, 8))
         self.ui["server_address_entry"] = ttk.Entry(server_frame, textvariable=self.server_url_var)
         self.ui["server_address_entry"].grid(row=1, column=1, sticky="ew")
-        self.ui["server_test_btn"] = ttk.Button(server_frame, command=self.test_server_connection)
-        self.ui["server_test_btn"].grid(row=1, column=2, sticky="e", padx=(8, 0))
+        # A bare name, a full URL and a pasted invite all end up here, so the
+        # field tidies itself as soon as focus leaves it.
+        self.ui["server_address_entry"].bind("<FocusOut>", self._on_address_entered)
+        self.ui["server_address_entry"].bind("<Return>", self._on_address_entered)
+
+        address_buttons = ttk.Frame(server_frame)
+        address_buttons.grid(row=1, column=2, sticky="e", padx=(8, 0))
+        self.ui["server_find_btn"] = ttk.Button(address_buttons, command=self.find_servers)
+        self.ui["server_find_btn"].pack(side="left")
+        self.ui["server_test_btn"] = ttk.Button(address_buttons, command=self.test_server_connection)
+        self.ui["server_test_btn"].pack(side="left", padx=(6, 0))
 
         self.ui["server_token_label"] = ttk.Label(server_frame)
         self.ui["server_token_label"].grid(row=2, column=0, sticky="w", padx=(0, 8), pady=(6, 0))
@@ -797,6 +808,7 @@ class ConverterApp:
         self.ui["server_token_label"].configure(text=self.tr("server_token"))
         self.ui["server_transport_label"].configure(text=self.tr("server_transport_label"))
         self.ui["server_test_btn"].configure(text=self.tr("server_test"))
+        self.ui["server_find_btn"].configure(text=self.tr("server_find"))
         self._apply_transport_labels()
         self._apply_backend_mode()
         if not self.is_running:
@@ -1083,7 +1095,8 @@ class ConverterApp:
         elif not remote and packed:
             frame.pack_forget()
         state = "normal" if remote else "disabled"
-        for key in ("server_address_entry", "server_token_entry", "server_test_btn"):
+        for key in ("server_address_entry", "server_token_entry",
+                    "server_test_btn", "server_find_btn"):
             self.ui[key].configure(state=state)
         self.ui["server_transport_combo"].configure(state="readonly" if remote else "disabled")
         if "job_timeout_check" in self.ui:
@@ -1205,7 +1218,7 @@ class ConverterApp:
         if not self.use_remote_backend():
             return {"url": "", "token": "", "transport": config.TRANSPORT_AUTO, "shares": []}
         return {
-            "url": self.server_url_var.get().strip(),
+            "url": self._consume_address_input(),
             "token": self.server_token_var.get().strip(),
             "transport": self.server_transport_var.get(),
             "shares": self.settings["server"].get("shares", []),
@@ -1264,31 +1277,154 @@ class ConverterApp:
         self._save_settings()
         self.root.destroy()
 
+    # -- address entry ----------------------------------------------------
+    def _on_address_entered(self, _event=None):
+        self._consume_address_input()
+
+    def _consume_address_input(self) -> str:
+        """Read the address field and leave a usable URL in it.
+
+        A user arrives with one of three things: an invite string pasted from
+        the server operator, a bare host name or IP, or a full URL. All three
+        end up as a URL the backend can open. Something unusable is left in the
+        field untouched, so the typo stays where the user can see it.
+        """
+        raw = self.server_url_var.get().strip()
+        if not raw:
+            return ""
+
+        invite = discovery.parse_invite(raw)
+        if invite:
+            self.server_url_var.set(invite["url"])
+            if invite["token"]:
+                self.server_token_var.set(invite["token"])
+            self.server_status_var.set(self.tr("server_invite_applied"))
+            return invite["url"]
+
+        normalized = discovery.normalize_server_url(raw)
+        if not normalized:
+            self.server_status_var.set(self.tr("server_address_invalid", value=raw))
+            return raw
+        if normalized != raw:
+            self.server_url_var.set(normalized)
+        return normalized
+
     # -- connection test --------------------------------------------------
     def test_server_connection(self):
         if self.server_test_running:
             return
-        url = self.server_url_var.get().strip()
-        if not url:
+        settings = self.backend_settings()
+        if not settings["url"]:
             self.server_status_var.set(self.tr("server_test_failed", detail=self.tr("server_not_configured")))
             return
         self.server_test_running = True
         self.server_status_var.set(self.tr("server_test_running"))
         threading.Thread(
             target=self._server_test_worker,
-            args=(self.backend_settings(), self.lang()),
+            args=(settings, self.lang()),
             daemon=True,
         ).start()
 
     def _server_test_worker(self, server, lang):
         from hwp2pdf.backends.remote_http import RemoteHttpBackend
 
+        # A single-label name typed on a Mac often answers only as
+        # "<name>.local", so try that spelling before reporting a failure.
+        for candidate in discovery.url_candidates(server["url"])[1:]:
+            if discovery.probe(candidate):
+                server = {**server, "url": candidate}
+                break
+
         try:
             backend = RemoteHttpBackend(server)
             backend.preflight(lang)
-            self.log_queue.put(("server_test", (True, backend.capabilities_payload)))
+            self.log_queue.put(("server_test", (True, backend.capabilities_payload, server["url"])))
         except Exception as e:
-            self.log_queue.put(("server_test", (False, str(e))))
+            self.log_queue.put(("server_test", (False, str(e), server["url"])))
+
+    # -- finding a server -------------------------------------------------
+    def find_servers(self):
+        """Probe the machines this one can already see, on a worker thread."""
+        if self.server_find_running:
+            return
+        self.server_find_running = True
+        self.ui["server_find_btn"].configure(state="disabled")
+        self.server_status_var.set(self.tr("server_find_running"))
+        threading.Thread(target=self._find_servers_worker, daemon=True).start()
+
+    def _find_servers_worker(self):
+        try:
+            servers = discovery.discover()
+        except Exception:
+            # Discovery is a convenience; typing the address always still works.
+            servers = []
+        self.log_queue.put(("server_find", servers))
+
+    def _choose_server(self, servers):
+        """Modal list of what answered. Picking one fills the address field."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title(self.tr("server_find_title"))
+        dialog.transient(self.root)
+
+        ttk.Label(
+            dialog, text=self.tr("server_find_hint"), wraplength=560, justify="left"
+        ).pack(fill="x", padx=12, pady=(12, 8))
+
+        columns = ("name", "address", "version", "note")
+        tree = ttk.Treeview(
+            dialog, columns=columns, show="headings",
+            height=min(8, max(3, len(servers))), selectmode="browse",
+        )
+        for column, width in zip(columns, (140, 220, 110, 190)):
+            tree.heading(column, text=self.tr(f"server_find_column_{column}"))
+            tree.column(column, width=width)
+        tree.pack(fill="both", expand=True, padx=12)
+
+        for index, server in enumerate(servers):
+            notes = [self.tr(
+                "server_find_via_tailscale"
+                if server["via"] == discovery.VIA_TAILSCALE
+                else "server_find_via_lan"
+            )]
+            if server["auth_required"]:
+                notes.append(self.tr("server_find_needs_token"))
+            if not server["compatible"]:
+                notes.append(self.tr("server_find_incompatible"))
+            tree.insert("", "end", iid=str(index), values=(
+                server["name"], server["url"], server["version"], " \u00b7 ".join(notes),
+            ))
+        tree.selection_set("0")
+        tree.focus("0")
+        tree.focus_set()
+
+        def choose(_event=None):
+            selection = tree.selection()
+            if not selection:
+                return
+            picked = servers[int(selection[0])]
+            self.server_url_var.set(picked["url"])
+            dialog.destroy()
+            # A server that wants a token cannot be tested until it has one.
+            if picked["auth_required"] and not self.server_token_var.get().strip():
+                self.server_status_var.set(self.tr("server_find_needs_token"))
+                self.ui["server_token_entry"].focus_set()
+            else:
+                self.test_server_connection()
+
+        tree.bind("<Double-1>", choose)
+        tree.bind("<Return>", choose)
+
+        buttons = ttk.Frame(dialog, padding=(12, 12))
+        buttons.pack(fill="x")
+        ttk.Button(
+            buttons, text=self.tr("server_find_cancel"), command=dialog.destroy
+        ).pack(side="right")
+        ttk.Button(
+            buttons, text=self.tr("server_find_select"), command=choose
+        ).pack(side="right", padx=(0, 6))
+
+        dialog.grab_set()
+        return dialog
 
     def open_selected_folder(self):
         target = self.folder_var.get().strip()
@@ -1368,9 +1504,23 @@ class ConverterApp:
                             "warning",
                         )
 
+                elif kind == "server_find":
+                    self.server_find_running = False
+                    self.ui["server_find_btn"].configure(
+                        state="normal" if self.use_remote_backend() else "disabled"
+                    )
+                    if payload:
+                        self.server_status_var.set("")
+                        self._choose_server(payload)
+                    else:
+                        self.server_status_var.set(self.tr("server_find_none"))
+
                 elif kind == "server_test":
-                    ok, detail = payload
+                    ok, detail, resolved = payload
                     self.server_test_running = False
+                    # The worker may have fallen back to the ".local" spelling.
+                    if resolved and resolved != self.server_url_var.get().strip():
+                        self.server_url_var.set(resolved)
                     if ok:
                         self.server_status_var.set(self.tr(
                             "server_test_ok",

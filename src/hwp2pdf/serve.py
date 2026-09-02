@@ -17,6 +17,7 @@ from pathlib import Path
 
 from hwp2pdf import paths
 from hwp2pdf.constants import APP_NAME
+from hwp2pdf.discovery import TAILSCALE_BINARIES, make_invite
 from hwp2pdf.server import protocol
 from hwp2pdf.version import __version__
 
@@ -69,15 +70,6 @@ class ServerLog:
                 self.path.replace(previous)
         except OSError:
             pass
-TAILSCALE_BINARIES = (
-    "tailscale",
-    r"C:\Program Files\Tailscale\tailscale.exe",
-    r"C:\Program Files (x86)\Tailscale\tailscale.exe",
-    "/usr/local/bin/tailscale",
-    "/opt/homebrew/bin/tailscale",
-)
-
-
 #: At logon the server can start before Tailscale has finished connecting, so
 #: --bind tailscale waits instead of giving up. Autostart would otherwise fail
 #: on every boot, and the only symptom is the client failing to connect.
@@ -243,6 +235,14 @@ def banner(log, args, bind, token, share_roots, probe):
         log(f"  log         {log.path}")
     log("  note        run this in a logged-in desktop session;")
     log("              Hangul automation does not work as a Windows Service.")
+    # The one thing to hand a new client: it carries the address and the token
+    # together, so nothing has to be dictated over the phone.
+    if bind in LOOPBACK:
+        log("  invite      (none -- a loopback address is useless to another machine;")
+        log("              rebind with --bind tailscale or --bind <address>)")
+    else:
+        log(f"  invite      {make_invite(f'http://{bind}:{args.port}', token)}")
+        log("              paste this into the client's address field")
     if log.echo:
         log("Press Ctrl+C to stop.")
 

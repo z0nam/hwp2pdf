@@ -1,13 +1,15 @@
 import argparse
+import json
 import sys
 from pathlib import Path
 
-from hwp2pdf import config
+from hwp2pdf import config, discovery
 from hwp2pdf.backends import BackendUnavailable, create_backend
 from hwp2pdf.backends.windows_com import get_hwp_processes, kill_hwp
 from hwp2pdf.constants import APP_NAME, enabled_extensions
 from hwp2pdf.i18n import translate
 from hwp2pdf.jobs import collect_files, run_batch
+from hwp2pdf.server import protocol
 from hwp2pdf.version import __version__
 
 # Importing hwp2pdf.app would pull in tkinter; the CLI and the conversion
@@ -76,8 +78,10 @@ def build_parser():
     parser.add_argument(
         "--server",
         default="",
-        help="Convert on a Windows conversion server, e.g. http://host:8765 "
-             "(defaults to the saved setting or $HWP2PDF_SERVER_URL)",
+        help="Convert on a Windows conversion server. Accepts a full URL, a bare "
+             f"host or IP (port {protocol.DEFAULT_PORT} is assumed), or an invite "
+             "string the server prints. Defaults to the saved setting or "
+             "$HWP2PDF_SERVER_URL.",
     )
     parser.add_argument(
         "--token", default="", help="Bearer token for --server (or $HWP2PDF_TOKEN)"
@@ -112,12 +116,62 @@ def resolve_backend_settings(args):
     """Command line wins over saved settings, which win over defaults."""
     settings = config.server_settings()
     if args.server:
-        settings["url"] = args.server
+        # An invite carries a token as well, so it is unpacked before --token
+        # is applied and can still be overridden by it.
+        invite = discovery.parse_invite(args.server)
+        if invite:
+            settings["url"] = invite["url"]
+            if invite["token"]:
+                settings["token"] = invite["token"]
+        else:
+            settings["url"] = args.server
     if args.token:
         settings["token"] = args.token
     if args.transport:
         settings["transport"] = args.transport
+    # A saved setting or an environment variable may also be a bare host name.
+    settings["url"] = discovery.normalize_server_url(settings["url"]) or settings["url"]
     return settings
+
+
+def find_main(argv=None):
+    """``hwp2pdf find`` -- list the conversion servers this machine can reach."""
+    parser = argparse.ArgumentParser(
+        prog="hwp2pdf find",
+        description="List reachable conversion servers (Tailscale peers and "
+                    "hosts already in this machine's ARP table).",
+    )
+    parser.add_argument("--timeout", type=float, default=discovery.PROBE_TIMEOUT,
+                        help="Seconds to wait for each server to answer")
+    parser.add_argument("--json", action="store_true", help="Print machine-readable output")
+    args = parser.parse_args(argv)
+
+    servers = discovery.discover(timeout=args.timeout)
+    if args.json:
+        print(json.dumps(servers, ensure_ascii=False, indent=2), flush=True)
+        return 0 if servers else 1
+
+    if not servers:
+        print(
+            "No conversion server answered.\n"
+            "Pass --server with the address, or paste the invite string the "
+            "server prints at startup.",
+            file=sys.stderr, flush=True,
+        )
+        return 1
+
+    for server in servers:
+        notes = [server["via"]]
+        if server["auth_required"]:
+            notes.append("token required")
+        if not server["compatible"]:
+            notes.append(f"api {server['api']} != {protocol.API_VERSION}")
+        print(
+            f"{server['name'] or '-':<18} {server['url']:<34} "
+            f"v{server['version'] or '?':<14} {', '.join(notes)}",
+            flush=True,
+        )
+    return 0
 
 
 def selected_formats(args):
@@ -168,6 +222,8 @@ def main(argv=None):
         from hwp2pdf.serve import main as serve_main
 
         return serve_main(argv[1:])
+    if argv and argv[0] == "find":
+        return find_main(argv[1:])
 
     parser = build_parser()
     args = parser.parse_args(argv)
