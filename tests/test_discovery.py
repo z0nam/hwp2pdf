@@ -230,6 +230,77 @@ def test_an_unreadable_arp_table_is_not_an_error(monkeypatch):
     assert discovery.arp_neighbours() == []
 
 
+# -- sweeping --------------------------------------------------------------
+
+IFCONFIG = """\
+en1: flags=8863 mtu 1500
+\tinet 192.168.8.2 netmask 0xffffff00 broadcast 192.168.8.255
+en0: flags=8863 mtu 1500
+\tinet 192.168.161.11 netmask 0xffffff00 broadcast 192.168.161.255
+bridge0: flags=8863 mtu 1500
+\tinet 169.254.10.82 netmask 0xffff0000
+utun5: flags=8051 mtu 1280
+\tinet 100.123.230.95 --> 100.123.230.95 netmask 0xffffffff
+lo0: flags=8049 mtu 16384
+\tinet 127.0.0.1 netmask 0xff000000
+"""
+
+
+def test_every_attached_network_is_swept_not_just_the_default_route(monkeypatch):
+    # A Mac on Wi-Fi and Ethernet reaches the server over whichever one it
+    # shares, which need not be the interface carrying the default route.
+    monkeypatch.setattr(discovery, "_run", lambda *a, **k: IFCONFIG)
+    assert [str(net) for net in discovery.local_networks()] == [
+        "192.168.8.0/24", "192.168.161.0/24",
+    ]
+
+
+def test_tailscale_loopback_and_link_local_are_never_swept(monkeypatch):
+    monkeypatch.setattr(discovery, "_run", lambda *a, **k: IFCONFIG)
+    swept = {str(net) for net in discovery.local_networks()}
+    assert not any(net.startswith(("100.", "169.254.", "127.")) for net in swept)
+
+
+@pytest.mark.parametrize("address", [
+    "203.0.113.7",    # documentation range -- ipaddress calls this "private"
+    "8.8.8.8",        # genuinely public
+    "100.123.230.95",  # Tailscale's shared-address space
+    "169.254.10.82",  # link-local
+    "127.0.0.1",
+])
+def test_only_real_lan_ranges_are_swept(monkeypatch, address):
+    monkeypatch.setattr(discovery, "_run", lambda *a, **k: f"\tinet {address} netmask 0xffffff00")
+    assert discovery.local_networks() == []
+
+
+def test_only_a_few_networks_are_swept(monkeypatch):
+    many = "\n".join(f"\tinet 10.{n}.0.5 netmask 0xffffff00" for n in range(10))
+    monkeypatch.setattr(discovery, "_run", lambda *a, **k: many)
+    assert len(discovery.local_networks()) == discovery.SWEEP_MAX_NETWORKS
+
+
+def test_the_sweep_covers_both_networks_and_skips_this_machine(monkeypatch):
+    monkeypatch.setattr(discovery, "_run", lambda *a, **k: IFCONFIG)
+    hosts = discovery.subnet_hosts()
+    assert len(hosts) == 2 * 254 - 2          # both /24s, less our two addresses
+    assert "192.168.8.1" in hosts and "192.168.161.254" in hosts
+    assert "192.168.8.2" not in hosts and "192.168.161.11" not in hosts
+
+
+def test_a_machine_on_no_private_network_has_nothing_to_sweep(monkeypatch):
+    monkeypatch.setattr(discovery, "_run", lambda *a, **k: "")
+    assert discovery.subnet_hosts() == []
+
+
+def test_sweeping_is_never_what_the_first_search_does(monkeypatch):
+    monkeypatch.setattr(discovery, "tailscale_peers", list)
+    monkeypatch.setattr(discovery, "arp_neighbours", lambda: ["192.168.8.9"])
+    monkeypatch.setattr(discovery, "subnet_hosts", lambda: ["192.168.8.77"])
+
+    assert len(discovery.candidates()) == 1
+    assert len(discovery.candidates(wide=True)) == 2
+
+
 # -- discovery -----------------------------------------------------------
 
 def test_discovery_finds_a_running_server_among_dead_candidates(health_server, monkeypatch):
@@ -237,7 +308,7 @@ def test_discovery_finds_a_running_server_among_dead_candidates(health_server, m
     monkeypatch.setattr(discovery, "tailscale_peers", list)
     monkeypatch.setattr(discovery, "arp_neighbours", lambda: ["203.0.113.9", host])
     # The port the fixture got is arbitrary, so candidates() is bypassed here.
-    monkeypatch.setattr(discovery, "candidates", lambda: {
+    monkeypatch.setattr(discovery, "candidates", lambda wide=False: {
         f"http://203.0.113.9:{port}": {"name": "", "via": discovery.VIA_LAN},
         health_server: {"name": "stub", "via": discovery.VIA_LAN},
     })
@@ -248,7 +319,7 @@ def test_discovery_finds_a_running_server_among_dead_candidates(health_server, m
 
 
 def test_discovery_with_nothing_to_probe_is_empty(monkeypatch):
-    monkeypatch.setattr(discovery, "candidates", dict)
+    monkeypatch.setattr(discovery, "candidates", lambda wide=False: {})
     assert discovery.discover() == []
 
 
@@ -263,7 +334,7 @@ def test_compatible_tailscale_peers_sort_first(monkeypatch):
         "http://b:1": {"compatible": True},
         "http://c:1": {"compatible": True},
     }
-    monkeypatch.setattr(discovery, "candidates", lambda: rows)
+    monkeypatch.setattr(discovery, "candidates", lambda wide=False: rows)
     monkeypatch.setattr(discovery, "probe", lambda url, timeout=0: {
         "url": url, "version": "1", "api": 1, "auth_required": False,
         **health[url],

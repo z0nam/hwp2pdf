@@ -11,7 +11,10 @@ there to a working address, in the order they are likely to succeed:
   its host name over mDNS, so on macOS ``namun-ji`` usually also answers as
   ``namun-ji.local``; both are tried.
 * the **Find button**, which probes the machines this one can already see --
-  Tailscale peers, then hosts in the local ARP table.
+  Tailscale peers, then hosts in the local ARP table. When that finds nothing,
+  a second, explicit press sweeps the attached /24 networks; it is never the
+  first thing tried, because 254 connections per network look like a port scan
+  to a corporate security appliance.
 
 No discovery protocol of its own is needed: ``/v1/health`` answers without a
 token and names the application, so any reachable server -- including one built
@@ -46,6 +49,24 @@ INVITE_SCHEME = "hwp2pdf://"
 PROBE_TIMEOUT = 1.5
 PROBE_WORKERS = 24
 
+#: Sweeping trades patience for breadth: hundreds of addresses, nearly all of
+#: them dead, so each gets less time and more of them run at once.
+SWEEP_TIMEOUT = 0.6
+SWEEP_WORKERS = 64
+#: A machine on more networks than this is a router or a lab, not the setup
+#: this feature is for; sweeping all of them would take longer than it is worth.
+SWEEP_MAX_NETWORKS = 3
+
+#: What an office or home LAN actually looks like. Spelled out rather than
+#: leaning on ``is_private``, which also accepts the documentation ranges and
+#: the shared-address space Tailscale hands out -- neither is a subnet anyone
+#: wants swept.
+LAN_NETWORKS = (
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+)
+
 TAILSCALE_BINARIES = (
     "tailscale",
     r"C:\Program Files\Tailscale\tailscale.exe",
@@ -61,6 +82,12 @@ _IPV4 = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")
 #: A host name urllib will accept. Anything else -- a space, a control
 #: character -- is a typo, and is rejected here rather than deep in http.client.
 _HOSTNAME = re.compile(r"^[a-z0-9_](?:[a-z0-9_\-.]*[a-z0-9_])?$", re.IGNORECASE)
+#: An address as the platform's own network tool prints it: "inet 1.2.3.4"
+#: (ifconfig, ip addr), "inet addr:1.2.3.4" (old Linux), or the "IPv4
+#: Address . . . : 1.2.3.4" line ipconfig prints in any language.
+_INET = re.compile(
+    r"(?:\binet\s+(?:addr:)?|IPv4[^:\n]*:\s*)(\d{1,3}(?:\.\d{1,3}){3})"
+)
 
 
 # -- addresses -----------------------------------------------------------
@@ -280,6 +307,52 @@ def _is_ipv4(value: str) -> bool:
         return False
 
 
+def local_networks() -> list:
+    """The private /24 networks this machine is attached to.
+
+    The default route is not enough: a Mac on both Wi-Fi and Ethernet reaches
+    the conversion server over whichever one the server happens to share, which
+    may not be the one carrying the default route. Nor is the host name, which
+    on a tailnet resolves to the Tailscale address alone. So the platform's own
+    tool is asked, and every private address it names contributes its /24.
+
+    Only the network matters, never the mask, so a stray broadcast address in
+    the output is harmless -- it names the same /24 -- and a dotted netmask is
+    dropped for not being private.
+    """
+    raw = "\n".join(filter(None, (
+        _run(["ip", "-4", "-o", "addr"]),   # modern Linux
+        _run(["ifconfig"]),                 # macOS, BSD, older Linux
+        _run(["ipconfig"]),                 # Windows
+    )))
+
+    networks = []
+    for address in _INET.findall(raw):
+        try:
+            parsed = ipaddress.ip_address(address)
+        except ValueError:
+            continue
+        if not any(parsed in network for network in LAN_NETWORKS):
+            continue
+        network = ipaddress.ip_network(f"{address}/24", strict=False)
+        if network not in networks:
+            networks.append(network)
+    return networks[:SWEEP_MAX_NETWORKS]
+
+
+def subnet_hosts() -> list:
+    """Every address on the attached /24 networks, this machine excluded."""
+    mine = {address for address in _INET.findall(
+        "\n".join(filter(None, (
+            _run(["ip", "-4", "-o", "addr"]), _run(["ifconfig"]), _run(["ipconfig"]),
+        )))
+    )}
+    hosts = []
+    for network in local_networks():
+        hosts.extend(str(host) for host in network.hosts() if str(host) not in mine)
+    return hosts
+
+
 def _reverse_name(address: str) -> str:
     try:
         return socket.gethostbyaddr(address)[0].split(".")[0]
@@ -289,8 +362,12 @@ def _reverse_name(address: str) -> str:
 
 # -- discovery -----------------------------------------------------------
 
-def candidates() -> dict:
-    """Addresses worth probing, mapped to how they were found."""
+def candidates(wide: bool = False) -> dict:
+    """Addresses worth probing, mapped to how they were found.
+
+    ``wide`` adds every address on the attached /24 networks. It is the
+    escalation the user asks for after a quiet search, never the default.
+    """
     found = {}
     for peer in tailscale_peers():
         url = f"http://{peer['address']}:{protocol.DEFAULT_PORT}"
@@ -298,16 +375,21 @@ def candidates() -> dict:
     for address in arp_neighbours():
         url = f"http://{address}:{protocol.DEFAULT_PORT}"
         found.setdefault(url, {"name": "", "via": VIA_LAN})
+    if wide:
+        for address in subnet_hosts():
+            url = f"http://{address}:{protocol.DEFAULT_PORT}"
+            found.setdefault(url, {"name": "", "via": VIA_LAN})
     return found
 
 
-def discover(timeout: float = PROBE_TIMEOUT, workers: int = PROBE_WORKERS) -> list:
+def discover(timeout: float = PROBE_TIMEOUT, workers: int = PROBE_WORKERS,
+             wide: bool = False) -> list:
     """Every conversion server this machine can currently reach.
 
     Compatible servers sort first, then Tailscale peers, then by name: the
     entry a user most likely wants is the one at the top.
     """
-    targets = candidates()
+    targets = candidates(wide)
     if not targets:
         return []
 

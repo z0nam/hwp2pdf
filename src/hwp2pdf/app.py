@@ -29,6 +29,7 @@ from hwp2pdf import discovery
 from hwp2pdf.i18n import LANGUAGE_CODES, LANGUAGE_LABELS, translate
 from hwp2pdf.jobs import collect_files, run_batch
 from hwp2pdf.paths import IS_WINDOWS, reveal_in_file_manager
+from hwp2pdf.server import protocol
 from hwp2pdf.updater import (
     GITHUB_RELEASES_PAGE_URL,
     UPDATE_DOWNLOAD_DIR,
@@ -708,6 +709,12 @@ class ConverterApp:
         )
         self.ui["server_status_label"].grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
 
+        # Only offered after a quiet search: sweeping a whole network is a
+        # deliberate escalation, not something to do on the first press.
+        self.ui["server_wide_btn"] = ttk.Button(server_frame, command=self.find_servers_wide)
+        self.ui["server_wide_btn"].grid(row=5, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        self.ui["server_wide_btn"].grid_remove()
+
         actions = ttk.Frame(self.root, padding=(12, 0, 12, 12))
         self.ui["actions_frame"] = actions
         actions.pack(fill="x")
@@ -809,6 +816,7 @@ class ConverterApp:
         self.ui["server_transport_label"].configure(text=self.tr("server_transport_label"))
         self.ui["server_test_btn"].configure(text=self.tr("server_test"))
         self.ui["server_find_btn"].configure(text=self.tr("server_find"))
+        self.ui["server_wide_btn"].configure(text=self.tr("server_find_wide"))
         self._apply_transport_labels()
         self._apply_backend_mode()
         if not self.is_running:
@@ -1343,22 +1351,34 @@ class ConverterApp:
             self.log_queue.put(("server_test", (False, str(e), server["url"])))
 
     # -- finding a server -------------------------------------------------
-    def find_servers(self):
+    def find_servers(self, wide=False):
         """Probe the machines this one can already see, on a worker thread."""
         if self.server_find_running:
             return
         self.server_find_running = True
-        self.ui["server_find_btn"].configure(state="disabled")
-        self.server_status_var.set(self.tr("server_find_running"))
-        threading.Thread(target=self._find_servers_worker, daemon=True).start()
+        for key in ("server_find_btn", "server_wide_btn"):
+            self.ui[key].configure(state="disabled")
+        self.server_status_var.set(
+            self.tr("server_find_wide_running" if wide else "server_find_running")
+        )
+        threading.Thread(
+            target=self._find_servers_worker, args=(wide,), daemon=True
+        ).start()
 
-    def _find_servers_worker(self):
+    def find_servers_wide(self):
+        self.find_servers(wide=True)
+
+    def _find_servers_worker(self, wide=False):
         try:
-            servers = discovery.discover()
+            servers = discovery.discover(
+                timeout=discovery.SWEEP_TIMEOUT if wide else discovery.PROBE_TIMEOUT,
+                workers=discovery.SWEEP_WORKERS if wide else discovery.PROBE_WORKERS,
+                wide=wide,
+            )
         except Exception:
             # Discovery is a convenience; typing the address always still works.
             servers = []
-        self.log_queue.put(("server_find", servers))
+        self.log_queue.put(("server_find", (wide, servers)))
 
     def _choose_server(self, servers):
         """Modal list of what answered. Picking one fills the address field."""
@@ -1505,14 +1525,23 @@ class ConverterApp:
                         )
 
                 elif kind == "server_find":
+                    wide, servers = payload
                     self.server_find_running = False
-                    self.ui["server_find_btn"].configure(
-                        state="normal" if self.use_remote_backend() else "disabled"
-                    )
-                    if payload:
+                    state = "normal" if self.use_remote_backend() else "disabled"
+                    for key in ("server_find_btn", "server_wide_btn"):
+                        self.ui[key].configure(state=state)
+                    if servers:
                         self.server_status_var.set("")
-                        self._choose_server(payload)
+                        self.ui["server_wide_btn"].grid_remove()
+                        self._choose_server(servers)
+                    elif wide:
+                        # Nothing left to escalate to; the button has done its job.
+                        self.ui["server_wide_btn"].grid_remove()
+                        self.server_status_var.set(self.tr(
+                            "server_find_wide_none", port=protocol.DEFAULT_PORT
+                        ))
                     else:
+                        self.ui["server_wide_btn"].grid()
                         self.server_status_var.set(self.tr("server_find_none"))
 
                 elif kind == "server_test":

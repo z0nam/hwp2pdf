@@ -138,15 +138,25 @@ def find_main(argv=None):
     """``hwp2pdf find`` -- list the conversion servers this machine can reach."""
     parser = argparse.ArgumentParser(
         prog="hwp2pdf find",
-        description="List reachable conversion servers (Tailscale peers and "
-                    "hosts already in this machine's ARP table).",
+        description="List reachable conversion servers: Tailscale peers and "
+                    "hosts already in this machine's ARP table, plus every "
+                    "address on the attached networks with --wide.",
     )
-    parser.add_argument("--timeout", type=float, default=discovery.PROBE_TIMEOUT,
+    parser.add_argument("--timeout", type=float, default=0.0,
                         help="Seconds to wait for each server to answer")
+    parser.add_argument(
+        "--wide", action="store_true",
+        help="Also probe every address on the attached networks. Slower, and a "
+             "corporate security appliance may read it as a port scan.",
+    )
     parser.add_argument("--json", action="store_true", help="Print machine-readable output")
     args = parser.parse_args(argv)
 
-    servers = discovery.discover(timeout=args.timeout)
+    servers = discovery.discover(
+        timeout=args.timeout or (discovery.SWEEP_TIMEOUT if args.wide else discovery.PROBE_TIMEOUT),
+        workers=discovery.SWEEP_WORKERS if args.wide else discovery.PROBE_WORKERS,
+        wide=args.wide,
+    )
     if args.json:
         print(json.dumps(servers, ensure_ascii=False, indent=2), flush=True)
         return 0 if servers else 1
@@ -154,8 +164,9 @@ def find_main(argv=None):
     if not servers:
         print(
             "No conversion server answered.\n"
-            "Pass --server with the address, or paste the invite string the "
-            "server prints at startup.",
+            + ("" if args.wide else "Try again with --wide to sweep the attached networks.\n")
+            + "Otherwise pass --server with the address, or use the invite "
+              "string the server prints at startup.",
             file=sys.stderr, flush=True,
         )
         return 1

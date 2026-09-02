@@ -391,27 +391,82 @@ def test_an_address_that_makes_no_sense_is_reported_and_left_alone(app):
     assert app.server_status_var.get() == app.tr("server_address_invalid", value="ftp://nope")
 
 
-def test_finding_nothing_says_so_instead_of_failing(app, monkeypatch):
-    app.use_remote_var.set(True)
-    monkeypatch.setattr("hwp2pdf.discovery.discover", list)
+class _NoThread:
+    """Stands in for the worker thread so a test can drive it step by step."""
 
-    app.find_servers()                  # disables the button, queues nothing yet
-    assert str(app.ui["server_find_btn"].cget("state")) == "disabled"
-    app._find_servers_worker()          # what the worker thread would do
-    app._poll_log_queue()               # what the UI does with the result
+    def __init__(self, *_args, **_kwargs):
+        pass
+
+    def start(self):
+        pass
+
+
+@pytest.fixture
+def find_steps(app, monkeypatch):
+    """Run a search as three visible steps: the click, the worker, the UI pump."""
+    monkeypatch.setattr("hwp2pdf.app.threading.Thread", _NoThread)
+
+    def run(wide=False):
+        app.find_servers(wide=wide)
+        assert str(app.ui["server_find_btn"].cget("state")) == "disabled"
+        app._find_servers_worker(wide)
+        app._poll_log_queue()
+
+    return run
+
+
+def test_finding_nothing_offers_to_search_wider(app, monkeypatch, find_steps):
+    app.use_remote_var.set(True)
+    monkeypatch.setattr("hwp2pdf.discovery.discover", lambda **_kw: [])
+
+    find_steps()
 
     assert app.server_find_running is False
     assert app.server_status_var.get() == app.tr("server_find_none")
     assert str(app.ui["server_find_btn"].cget("state")) == "normal"
+    # The escalation appears only now -- never before a quiet first search.
+    assert app.ui["server_wide_btn"].winfo_manager() == "grid"
+
+
+def test_the_wider_search_is_not_what_the_first_press_does(app, monkeypatch, find_steps):
+    app.use_remote_var.set(True)
+    asked = []
+    monkeypatch.setattr(
+        "hwp2pdf.discovery.discover", lambda **kw: asked.append(kw.get("wide")) or []
+    )
+
+    assert app.ui["server_wide_btn"].winfo_manager() == ""
+    find_steps()
+    find_steps(wide=True)
+
+    assert asked == [False, True]
+    assert app.server_status_var.get() == app.tr(
+        "server_find_wide_none", port=DEFAULT_PORT
+    )
+    # Nothing further to escalate to, so the button stands down again.
+    assert app.ui["server_wide_btn"].winfo_manager() == ""
+
+
+def test_a_wider_search_that_finds_something_hides_the_escalation(app, monkeypatch, find_steps):
+    app.use_remote_var.set(True)
+    monkeypatch.setattr("hwp2pdf.discovery.discover", lambda **_kw: [])
+    find_steps()
+    assert app.ui["server_wide_btn"].winfo_manager() == "grid"
+
+    monkeypatch.setattr("hwp2pdf.discovery.discover", lambda **_kw: list(FOUND))
+    monkeypatch.setattr(app, "_choose_server", lambda servers: None)
+    find_steps(wide=True)
+
+    assert app.ui["server_wide_btn"].winfo_manager() == ""
 
 
 def test_discovery_failing_outright_is_not_fatal(app, monkeypatch):
-    def explode():
+    def explode(**_kw):
         raise OSError("no network")
 
     monkeypatch.setattr("hwp2pdf.discovery.discover", explode)
     app._find_servers_worker()
-    assert app.log_queue.get_nowait() == ("server_find", [])
+    assert app.log_queue.get_nowait() == ("server_find", (False, []))
 
 
 FOUND = [
