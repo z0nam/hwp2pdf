@@ -43,8 +43,12 @@ release.
 The repository lives on a Windows box (Hancom Office, conversion server) and a
 Mac. Both push to the same `origin`.
 
-- `git fetch` before starting work. A large refactor started on a stale base
-  cost a hand-merge of a 322-line diff once already.
+- **Run `git pull` before making any change** -- not `git fetch`, and not only
+  when a conflict seems likely. A large refactor started on a stale base cost a
+  hand-merge of a 322-line diff once already. `.claude/settings.json` wires
+  `scripts/check_freshness.sh` into SessionStart and into the first `Edit`/`Write`
+  of a turn, so the reminder arrives on its own; the rule holds whether or not
+  the hook fires (it needs a POSIX shell, so on Windows it wants Git Bash).
 - **Never copy the tree between machines with `tar`/`scp` when the branch is
   pushed** -- `git pull` instead. macOS `tar` writes AppleDouble `._*` companions
   for every entry, and `._.` in particular cannot be deleted with `Remove-Item`

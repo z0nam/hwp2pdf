@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/scripts/check_freshness.sh\" session",
+            "shell": "bash",
+            "timeout": 30,
+            "statusMessage": "Checking for upstream commits..."
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/scripts/check_freshness.sh\" guard",
+            "shell": "bash",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
