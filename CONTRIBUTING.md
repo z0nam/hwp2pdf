@@ -119,8 +119,10 @@ GitHub Release page mirrors it. When cutting a release:
    reference at the bottom of the file.
 2. Run `scripts/build_windows.ps1` then `scripts/build_installer.ps1` — these
    stamp `src/hwp2pdf/version.py` to match the date / build number.
-3. If the release ships a macOS build too, run `./scripts/build_macos.sh <same version>`
-   on a Mac so both platforms carry the same build number.
+3. macOS builds happen automatically. Publishing the release (step 6) triggers
+   `.github/workflows/release-macos.yml`, which builds arm64 and Intel on
+   GitHub's Mac runners and attaches both zips. Nothing to do by hand, and no
+   Mac needs to be switched on.
 4. Commit `CHANGELOG.md` + `src/hwp2pdf/version.py` together, then push.
 5. If this release changed `API_VERSION` in `src/hwp2pdf/server/protocol.py`,
    update the conversion server machines in the same pass: the client compares
