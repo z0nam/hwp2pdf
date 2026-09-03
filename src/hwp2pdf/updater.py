@@ -62,6 +62,13 @@ def latest_release_download_url(release: dict):
             (".dmg",),
             (".zip",),
         )
+    elif sys.platform.startswith("linux"):
+        preferred_patterns = (
+            ("linux", ".tar.gz"),
+            ("linux", ".zip"),
+            (".tar.gz",),
+            (".zip",),
+        )
     else:
         preferred_patterns = (
             ("setup", ".exe"),

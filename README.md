@@ -1,4 +1,4 @@
-﻿# hwp2pdf
+# hwp2pdf
 
 Windows + Hancom Office COM 자동화를 사용하는 HWP/HWPX -> PDF/DOCX GUI/CLI 변환기입니다.
 macOS에서는 같은 앱이 한컴오피스가 설치된 Windows **변환 서버**에 붙어서 동작합니다.
@@ -69,6 +69,12 @@ to a Windows **conversion server** over HTTP.
 - mac에 설치된 한컴오피스(HwpMac2014 등)는 사용하지 않습니다 — AppleScript 사전도
   CLI 변환 진입점도 없어 자동화가 불가능합니다.
 
+**Linux (원격 변환)**
+
+- Ubuntu 20.04+ 또는 호환 배포판
+- 한컴오피스가 설치된 Windows 컴퓨터에서 `hwp2pdf-cli serve` 실행 중일 것
+  (또는 `--rhwp-fallback` 로컬 변환)
+
 **Windows (local conversion)**
 
 - Windows
@@ -82,6 +88,11 @@ to a Windows **conversion server** over HTTP.
   (see [docs/remote-server.md](docs/remote-server.md))
 - A locally installed Hancom Office for Mac is *not* used: it exposes neither an AppleScript
   dictionary nor a command-line conversion entry point, so it cannot be automated.
+
+**Linux (remote conversion)**
+
+- Ubuntu 20.04+ or compatible distribution
+- A Windows machine with Hancom Office running `hwp2pdf-cli serve` (or use `--rhwp-fallback` for local fallback)
 
 개발자 또는 소스 실행 사용자는 Python 3.10+가 필요합니다. Windows에서는 `pywin32`,
 macOS에서는 Tk 8.6 이상을 갖춘 파이썬(python.org 빌드 또는 `brew install python-tk@3.13`)이 필요합니다.
@@ -347,17 +358,25 @@ The repository should not commit generated `.exe` or `.app` files. Build them lo
 ```bash
 ./scripts/check_macos.sh          # 파이썬 / Tk / 의존성 점검
 ./scripts/build_macos.sh          # dist/hwp2pdf.app + release/hwp2pdf-macos-<arch>-<ver>.zip
-./scripts/build_macos.sh 2026.08.28.3   # 버전을 고정 (Windows 빌드와 맞출 때)
+./scripts/build_macos.sh 2026.08.28.3   # 버전을 고정 (Windows/Linux 빌드와 맞출 때)
 ```
 
-버전 번호는 두 플랫폼이 `scripts/set_version.py` 하나를 공유합니다. 같은 릴리스를 양쪽에서
+### Linux
+
+```bash
+./scripts/check_linux.sh          # 파이썬 / Tk / 의존성 점검
+./scripts/build_linux.sh          # dist/hwp2pdf + dist/hwp2pdf-cli + release/hwp2pdf-linux-<arch>-<ver>.tar.gz
+./scripts/build_linux.sh 2026.08.28.3   # 버전을 고정
+```
+
+버전 번호는 세 플랫폼이 `scripts/set_version.py` 하나를 공유합니다. 같은 릴리스를 여러 플랫폼에서
 빌드할 때는 한쪽에서 정해진 버전을 다른 쪽에 인자로 넘기세요
-(`.\scripts\build_windows.ps1 -Version 2026.08.28.3`).
+(`.\scripts\build_windows.ps1 -Version 2026.08.28.3`, `./scripts/build_linux.sh 2026.08.28.3`).
 
 `.app`은 ad-hoc 서명만 하고 공증하지 않으므로 `spctl`은 `rejected`를 보고합니다. 정상입니다.
 
-Both platforms share `scripts/set_version.py` for the `yyyy.MM.dd.N` build number. When building the
-same release on both, pin the version on the second build. The `.app` is ad-hoc signed and not
+All platforms share `scripts/set_version.py` for the `yyyy.MM.dd.N` build number. When building the
+same release across platforms, pin the version on subsequent builds. The `.app` is ad-hoc signed and not
 notarized, so `spctl` reports `rejected` by design.
 
 Windows PC에서 빌드하기 전에 환경 체크를 실행합니다:
@@ -555,6 +574,7 @@ CONTRIBUTING.md         contribution guide
 CONTRIBUTORS.md         contributor list
 hwp2pdf.spec            PyInstaller recipe (Windows)
 hwp2pdf-macos.spec      PyInstaller recipe (macOS .app)
+hwp2pdf-linux.spec      PyInstaller recipe (Linux binaries)
 LICENSE                 MIT license
 pyproject.toml          Python package metadata
 SECURITY.md             security reporting guide

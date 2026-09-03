@@ -205,7 +205,14 @@ On macOS:
 ./scripts/build_macos.sh
 ```
 
-Both platforms compute `yyyy.MM.dd.N` with `scripts/set_version.py`, which also writes
+On Linux:
+
+```bash
+./scripts/check_linux.sh
+./scripts/build_linux.sh
+```
+
+All platforms compute `yyyy.MM.dd.N` with `scripts/set_version.py`, which also writes
 `src/hwp2pdf/version.py`.
 
 Expected outputs:
@@ -217,6 +224,8 @@ Expected outputs:
   `scripts/build_installer.ps1` is run
 - `dist/hwp2pdf.app`, `dist/hwp2pdf-cli` and
   `release/hwp2pdf-macos-<arch>-YYYY.MM.DD.N.zip` from `scripts/build_macos.sh`
+- `dist/hwp2pdf`, `dist/hwp2pdf-cli` and
+  `release/hwp2pdf-linux-<arch>-YYYY.MM.DD.N.tar.gz` from `scripts/build_linux.sh`
 
 Versioned build numbers use the build date and the sequence number for that date, for example
 `hwp2pdf-2026.04.25.1.exe`.
