@@ -8,6 +8,7 @@ __pycache__/
 venv/
 .venv/
 .venv-macos/
+.venv-linux/
 .env/
 
 # PyInstaller
@@ -23,6 +24,7 @@ vendor/rhwp/
 # Executables
 *.exe
 *.zip
+*.tar.gz
 release/
 
 # Runtime outputs

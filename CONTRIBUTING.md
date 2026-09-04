@@ -80,10 +80,17 @@ macOS:
 ./scripts/build_macos.sh
 ```
 
-Both platforms take the `yyyy.MM.dd.N` build number from `scripts/set_version.py`, which also
-writes `src/hwp2pdf/version.py`. When building the same release on both, pin the version on the
-second build (`./scripts/build_macos.sh 2026.08.28.3`,
-`.\scripts\build_windows.ps1 -Version 2026.08.28.3`).
+Linux:
+
+```bash
+./scripts/build_linux.sh
+```
+
+All platforms take the `yyyy.MM.dd.N` build number from `scripts/set_version.py`, which also
+writes `src/hwp2pdf/version.py`. When building the same release across platforms, pin the version on the
+subsequent builds (`./scripts/build_macos.sh 2026.08.28.3`,
+`.\scripts\build_windows.ps1 -Version 2026.08.28.3`,
+`./scripts/build_linux.sh 2026.08.28.3`).
 
 ## Syncing a working tree to a Windows box
 
@@ -107,7 +114,7 @@ copying whenever the branch is already pushed.
 - Update `README.md` and `docs/context.md` when behavior changes.
 - Run `python -m pytest tests -q` before opening a PR.
 - Test both GUI and CLI paths when conversion behavior changes.
-- Changes to `jobs.run_batch` or a backend affect Windows and macOS alike; check both.
+- Changes to `jobs.run_batch` or a backend affect Windows, macOS, and Linux alike; check them.
 
 ## Release Flow
 
@@ -131,8 +138,9 @@ switched on and nothing is uploaded by hand.
    gh release create vYYYY.MM.DD.N --title vYYYY.MM.DD.N --notes-file notes.md
    ```
 
-   `.github/workflows/release.yml` then builds macOS arm64, macOS Intel, the
-   three Windows executables and the installer, and attaches all seven files.
+   `.github/workflows/release.yml` then builds macOS arm64, macOS Intel, Linux
+   x86_64, the three Windows executables and the installer, and attaches all
+   eight files.
    It takes a few minutes; watch it on the Actions tab.
 5. If this release changed `API_VERSION` in `src/hwp2pdf/server/protocol.py`,
    update the conversion server machines in the same pass: the client compares
@@ -140,7 +148,7 @@ switched on and nothing is uploaded by hand.
    server can be updated whenever convenient — build versions do not have to
    match, only the protocol does. A mismatch fails closed with a clear message
    rather than misbehaving.
-6. Confirm the release ended up with all seven assets. If any are missing, the
+6. Confirm the release ended up with all eight assets. If any are missing, the
    build failed — fix it and re-run rather than uploading by hand:
 
    ```bash

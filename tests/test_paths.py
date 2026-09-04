@@ -35,6 +35,14 @@ def test_macos_layout():
     assert paths.temp_workdir() == Path.home() / "Library" / "Caches" / "hwp2pdf" / "convert"
 
 
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux layout")
+def test_linux_layout(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    assert paths.app_data_dir() == tmp_path / "cfg" / "hwp2pdf"
+    assert paths.temp_workdir() == tmp_path / "cache" / "hwp2pdf" / "convert"
+
+
 def test_resource_root_contains_vendor_dir_when_running_from_source():
     if getattr(sys, "_MEIPASS", None):
         pytest.skip("frozen build")

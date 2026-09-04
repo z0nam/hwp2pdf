@@ -71,6 +71,11 @@ def latest_release_download_url(release: dict):
             preferred_patterns = (("macos", arch, ".zip"),)
         else:
             preferred_patterns = (("macos", ".zip"),)
+    elif sys.platform.startswith("linux"):
+        # Same rule: an archive built for another architecture -- or for
+        # another platform entirely -- is worse than offering no download.
+        arch = linux_arch()
+        preferred_patterns = (("linux", arch, ".tar.gz"),) if arch else (("linux", ".tar.gz"),)
     else:
         preferred_patterns = (
             ("setup", ".exe"),
@@ -82,15 +87,25 @@ def latest_release_download_url(release: dict):
         for name, url in candidates:
             if all(part in name for part in pattern):
                 return url
-    # Guessing on macOS means handing over a binary for the wrong architecture
-    # or another platform entirely; better to send the user to the release page.
-    if sys.platform == "darwin":
+    # Guessing means handing over a binary for the wrong architecture or
+    # another platform entirely; better to send the user to the release page.
+    # Windows keeps its historical last-resort behaviour.
+    if sys.platform == "darwin" or sys.platform.startswith("linux"):
         return ""
     return candidates[0][1] if candidates else ""
 
 
+def linux_arch() -> str:
+    """This machine's architecture as the Linux release assets spell it.
+
+    ``build_linux.sh`` names its tarball after ``uname -m``, so the value is
+    taken verbatim: an arm64 Linux archive is "aarch64", never "arm64".
+    """
+    return platform.machine().lower()
+
+
 def macos_arch() -> str:
-    """This Mac's architecture as the release assets spell it."""
+    """This Mac's architecture as the macOS release assets spell it."""
     machine = platform.machine().lower()
     if machine in ("arm64", "aarch64"):
         return "arm64"

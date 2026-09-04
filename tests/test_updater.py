@@ -21,12 +21,18 @@ RELEASE = {
         {"name": "hwp2pdf-serve-2026.09.02.3.exe", "browser_download_url": "u/serve.exe"},
         {"name": "hwp2pdf-setup-2026.09.02.3.exe", "browser_download_url": "u/setup.exe"},
         {"name": "hwp2pdf-windows-2026.09.02.3.zip", "browser_download_url": "u/windows.zip"},
+        {"name": "hwp2pdf-linux-x86_64-2026.09.02.3.tar.gz", "browser_download_url": "u/linux-x86_64.tar.gz"},
     ],
 }
 
 
 def on_mac(monkeypatch, machine="arm64"):
     monkeypatch.setattr(updater.sys, "platform", "darwin")
+    monkeypatch.setattr(updater.platform, "machine", lambda: machine)
+
+
+def on_linux(monkeypatch, machine="x86_64"):
+    monkeypatch.setattr(updater.sys, "platform", "linux")
     monkeypatch.setattr(updater.platform, "machine", lambda: machine)
 
 
@@ -63,6 +69,41 @@ def test_a_mac_is_never_handed_a_windows_asset(monkeypatch):
 def test_an_unrecognised_mac_takes_whatever_macos_build_exists(monkeypatch):
     on_mac(monkeypatch, "riscv64")
     assert updater.latest_release_download_url(RELEASE) in ("u/arm64.zip", "u/x86_64.zip")
+
+
+def test_linux_gets_the_tarball_for_its_own_architecture(monkeypatch):
+    on_linux(monkeypatch, "x86_64")
+    assert updater.latest_release_download_url(RELEASE) == "u/linux-x86_64.tar.gz"
+
+
+def test_linux_spells_arm_the_way_uname_does(monkeypatch):
+    # build_linux.sh names the tarball after `uname -m`, which reports
+    # "aarch64" on Linux -- not the "arm64" macOS uses for the same silicon.
+    on_linux(monkeypatch, "aarch64")
+    arm = {"assets": RELEASE["assets"] + [{
+        "name": "hwp2pdf-linux-aarch64-2026.09.02.3.tar.gz",
+        "browser_download_url": "u/linux-aarch64.tar.gz",
+    }]}
+    assert updater.latest_release_download_url(arm) == "u/linux-aarch64.tar.gz"
+
+
+def test_an_arm_linux_box_is_never_handed_the_x86_tarball(monkeypatch):
+    on_linux(monkeypatch, "aarch64")
+    assert updater.latest_release_download_url(RELEASE) == ""
+
+
+def test_linux_is_never_handed_a_windows_or_macos_asset(monkeypatch):
+    on_linux(monkeypatch)
+    others = {"assets": [a for a in RELEASE["assets"] if "linux" not in a["name"]]}
+    assert updater.latest_release_download_url(others) == ""
+
+
+def test_linux_installs_nothing_by_itself(monkeypatch):
+    # A tarball has no install-location convention, so the Linux build only
+    # ever offers the download; the auto-update button stays hidden.
+    monkeypatch.setattr(updater.sys, "platform", "linux")
+    assert updater.is_updatable_asset_url("https://x/hwp2pdf-linux-x86_64-1.tar.gz") is False
+    assert updater.can_auto_update() is False
 
 
 def test_windows_still_prefers_the_installer(monkeypatch):

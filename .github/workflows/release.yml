@@ -127,3 +127,53 @@ jobs:
             "release\hwp2pdf-setup-$v.exe" `
             "release\hwp2pdf-windows-$v.zip" `
             --clobber
+
+  linux:
+    # Not ubuntu-latest: PyInstaller links against the build machine's glibc,
+    # so the oldest image we can still get sets the floor the README promises.
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Resolve tag
+        id: tag
+        run: |
+          tag="${{ github.event.release.tag_name || inputs.tag }}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y python3-tk
+
+      # check_linux.sh is a developer preflight: it wants tkinterdnd2 and the
+      # rest of requirements.txt, which build_linux.sh only installs into its
+      # own venv further down. Like the macOS job, CI just confirms the
+      # interpreter can build a GUI at all.
+      - name: Check the interpreter can build a GUI
+        run: python3 -c "import tkinter; print('Tk', tkinter.TkVersion)"
+
+      - name: Build
+        env:
+          PYTHON: python3
+        run: ./scripts/build_linux.sh "${{ steps.tag.outputs.version }}"
+
+      - name: Verify the built binary
+        run: |
+          ./dist/hwp2pdf-cli --version
+          ./dist/hwp2pdf-cli --help
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ steps.tag.outputs.tag }}" \
+            release/hwp2pdf-linux-x86_64-${{ steps.tag.outputs.version }}.tar.gz \
+            --clobber

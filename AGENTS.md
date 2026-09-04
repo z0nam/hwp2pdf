@@ -25,9 +25,9 @@ Treat the code and tests as authoritative when older context disagrees with the 
 ## Releases
 
 Every artifact is produced by CI, not by hand. Publishing a GitHub release fires
-`.github/workflows/release.yml`, which builds macOS arm64, macOS Intel and the
-Windows executables plus installer, and attaches all seven files to that
-release.
+`.github/workflows/release.yml`, which builds macOS arm64, macOS Intel, Linux
+x86_64, and the Windows executables plus installer, and attaches all eight files
+to that release.
 
 - **Do not build or upload release artifacts manually.** If a release is missing
   some, re-run the workflow (`gh workflow run release.yml -f tag=vX`) rather
@@ -35,7 +35,7 @@ release.
 - Building needs neither Hancom Office nor COM. Only `check_windows.ps1` and
   actual conversion do, which is why the Windows build can run on a plain
   GitHub runner.
-- After publishing, confirm the release ends up with all seven assets. CI
+- After publishing, confirm the release ends up with all eight assets. CI
   failures show up on the Actions tab, not in the release itself.
 
 ## Working across the two machines
