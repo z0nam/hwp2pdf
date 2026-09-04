@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [2026.09.04.2] - 2026-09-04
+
 ### Added
 - **버전 줄을 클릭하면 업데이트를 다시 확인합니다.** 버튼을 새로 만들지 않았습니다 —
   대부분은 신경 쓰지 않고, 궁금한 사람만 그 줄을 눌러보면 됩니다.
@@ -302,7 +304,8 @@
 
 ---
 
-[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.09.04.1...HEAD
+[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.09.04.2...HEAD
+[2026.09.04.2]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.04.2
 [2026.09.04.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.04.1
 [2026.09.02.3]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.02.3
 [2026.09.02.2]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.02.2
