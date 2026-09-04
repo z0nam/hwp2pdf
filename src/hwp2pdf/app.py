@@ -1,5 +1,6 @@
 import os
 import queue
+import shlex
 import subprocess
 import sys
 import textwrap
@@ -29,13 +30,16 @@ from hwp2pdf import discovery
 from hwp2pdf.i18n import LANGUAGE_CODES, LANGUAGE_LABELS, translate
 from hwp2pdf.jobs import collect_files, run_batch
 from hwp2pdf.paths import IS_WINDOWS, reveal_in_file_manager
+
+IS_MACOS = sys.platform == "darwin"
 from hwp2pdf.server import protocol
 from hwp2pdf.updater import (
     GITHUB_RELEASES_PAGE_URL,
     UPDATE_DOWNLOAD_DIR,
+    app_bundle_path,
+    can_auto_update,
     fetch_latest_release,
-    is_installed_build,
-    is_setup_asset_url,
+    is_updatable_asset_url,
     latest_release_download_url,
     latest_release_version,
     load_update_state,
@@ -114,11 +118,12 @@ __all__ = [
     "TEMP_WORKDIR", "TEXT", "UPDATE_CHECK_INTERVAL_SECONDS",
     "UPDATE_DOWNLOAD_DIR", "UPDATE_STATE_PATH", "ConverterApp",
     "blend_hex_color", "blocked_conversion_reason", "build_save_failure_message",
+    "app_bundle_path", "can_auto_update",
     "configure_pdf_print", "detect_hwp_arch", "enable_auto_confirm_message_boxes",
     "enabled_extensions", "ensure_hwp_security_module_registered",
     "ensure_pywin32", "fetch_latest_release", "force_one_page_view",
-    "get_hwp_processes", "hwp_process_id", "is_hwp_running", "is_installed_build",
-    "is_nup_print_method", "is_setup_asset_url", "kill_hwp",
+    "get_hwp_processes", "hwp_process_id", "is_hwp_running",
+    "is_nup_print_method", "is_updatable_asset_url", "kill_hwp",
     "latest_release_download_url", "latest_release_version", "load_update_state",
     "main", "output_extension", "parse_version", "print_method_label",
     "read_hwp_file_flags", "register_hwp_security_module",
@@ -1648,7 +1653,7 @@ class ConverterApp:
             self.update_status_var.set(self.tr("update_status_available", current=__version__, latest=latest))
             self._show_upgrade_button(True)
             self._show_auto_update_button(
-                is_installed_build() and is_setup_asset_url(self.latest_download_url)
+                can_auto_update() and is_updatable_asset_url(self.latest_download_url)
             )
         elif status == "no_release":
             self.update_status_var.set(self.tr("update_status_no_release", current=__version__))
@@ -1667,16 +1672,20 @@ class ConverterApp:
         if self.is_running:
             messagebox.showwarning(APP_TITLE, self.tr("auto_update_busy"))
             return
-        if not is_setup_asset_url(self.latest_download_url):
+        if not is_updatable_asset_url(self.latest_download_url):
             self.open_latest_release()
             return
-        if not is_installed_build():
-            if messagebox.askyesno(APP_TITLE, self.tr("auto_update_portable")):
+        if not can_auto_update():
+            # The two platforms fail this for different reasons, so they say so
+            # differently: Windows wants the installer, macOS a writable home.
+            reason = "auto_update_portable_macos" if IS_MACOS else "auto_update_portable"
+            if messagebox.askyesno(APP_TITLE, self.tr(reason)):
                 self.open_latest_release()
             return
         state = load_update_state()
         latest = state.get("latest") or ""
-        if not messagebox.askyesno(APP_TITLE, self.tr("auto_update_confirm", latest=latest)):
+        confirm = "auto_update_confirm_macos" if IS_MACOS else "auto_update_confirm"
+        if not messagebox.askyesno(APP_TITLE, self.tr(confirm, latest=latest)):
             return
         self.auto_update_btn.state(["disabled"])
         self.upgrade_btn.state(["disabled"])
@@ -1711,9 +1720,114 @@ class ConverterApp:
                         if pct - last_pct >= 2:
                             self.log_queue.put(("update_dl_progress", pct))
                             last_pct = pct
-            self._launch_installer_and_signal_exit(dest)
+            if IS_MACOS:
+                self._launch_bundle_swap_and_signal_exit(dest)
+            else:
+                self._launch_installer_and_signal_exit(dest)
         except Exception as e:
             self.log_queue.put(("update_dl_error", str(e)))
+
+    def _launch_bundle_swap_and_signal_exit(self, zip_path: Path):
+        """Replace this .app with the downloaded one, then reopen it.
+
+        macOS has no installer to hand the job to, so a detached shell script
+        does it: it waits for this process to exit -- nothing may hold the
+        bundle open while it is moved -- swaps it, and opens the result. The
+        old bundle is moved aside rather than deleted, so a failed swap can be
+        undone and the user is left with a working app either way.
+        """
+        bundle = app_bundle_path()
+        if bundle is None:
+            raise RuntimeError("Not running from an .app bundle.")
+
+        parent_pid = os.getpid()
+        script_path = UPDATE_DOWNLOAD_DIR / "hwp2pdf-update.sh"
+        ready_path = UPDATE_DOWNLOAD_DIR / "hwp2pdf-update.ready"
+        helper_log = UPDATE_DOWNLOAD_DIR / "hwp2pdf-update.log"
+        try:
+            ready_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+        script = textwrap.dedent(f"""
+            #!/bin/sh
+            LOG={shlex.quote(str(helper_log))}
+            READY={shlex.quote(str(ready_path))}
+            ZIP={shlex.quote(str(zip_path))}
+            APP={shlex.quote(str(bundle))}
+            log() {{ echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) $*" >> "$LOG"; }}
+
+            echo ready > "$READY"
+            log "Helper started; waiting for the app to exit."
+            i=0
+            while kill -0 {parent_pid} 2>/dev/null; do
+                i=$((i + 1))
+                if [ "$i" -gt 120 ]; then
+                    log "The app did not exit within 30 seconds."
+                    rm -f "$READY"
+                    exit 1
+                fi
+                sleep 0.25
+            done
+
+            STAGE=$(mktemp -d) || exit 1
+            # ditto, not unzip: it restores the symlinks and the code signature
+            # inside the bundle, which a plain unzip flattens.
+            if ! ditto -x -k "$ZIP" "$STAGE"; then
+                log "Could not expand the download."
+                rm -rf "$STAGE"; rm -f "$READY"; open "$APP"; exit 1
+            fi
+            NEW="$STAGE/hwp2pdf.app"
+            if [ ! -d "$NEW" ]; then
+                log "The download did not contain hwp2pdf.app."
+                rm -rf "$STAGE"; rm -f "$READY"; open "$APP"; exit 1
+            fi
+            # Downloads arrive quarantined and this build is not notarized, so
+            # Gatekeeper would refuse the app it just installed.
+            xattr -dr com.apple.quarantine "$NEW" 2>/dev/null
+
+            BACKUP="$APP.old-$$"
+            if ! mv "$APP" "$BACKUP"; then
+                log "Could not move the old bundle aside."
+                rm -rf "$STAGE"; rm -f "$READY"; open "$APP"; exit 1
+            fi
+            if ditto "$NEW" "$APP"; then
+                log "Swapped in the new bundle."
+                rm -rf "$BACKUP" "$STAGE"
+                rm -f "$READY" "$ZIP"
+                open "$APP"
+            else
+                log "Swap failed; restoring the previous bundle."
+                rm -rf "$APP"
+                mv "$BACKUP" "$APP"
+                rm -rf "$STAGE"; rm -f "$READY"
+                open "$APP"
+                exit 1
+            fi
+        """).strip()
+        script_path.write_text(script + "\n", encoding="utf-8")
+        script_path.chmod(0o755)
+
+        helper = subprocess.Popen(
+            ["/bin/sh", str(script_path)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            # Outlive this process: it is the thing the helper waits for.
+            start_new_session=True,
+            close_fds=True,
+        )
+
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if ready_path.exists():
+                self.log_queue.put(("update_relaunch", None))
+                return
+            if helper.poll() is not None:
+                raise RuntimeError(f"Updater helper exited early. See {helper_log}")
+            time.sleep(0.05)
+        helper.terminate()
+        raise RuntimeError(f"Updater helper did not start. See {helper_log}")
 
     def _launch_installer_and_signal_exit(self, setup_path: Path):
         our_exe = sys.executable

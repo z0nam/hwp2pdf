@@ -129,7 +129,9 @@ jobs:
             --clobber
 
   linux:
-    runs-on: ubuntu-latest
+    # Not ubuntu-latest: PyInstaller links against the build machine's glibc,
+    # so the oldest image we can still get sets the floor the README promises.
+    runs-on: ubuntu-22.04
     steps:
       - name: Resolve tag
         id: tag
@@ -151,8 +153,12 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y python3-tk
 
-      - name: Preflight check
-        run: ./scripts/check_linux.sh
+      # check_linux.sh is a developer preflight: it wants tkinterdnd2 and the
+      # rest of requirements.txt, which build_linux.sh only installs into its
+      # own venv further down. Like the macOS job, CI just confirms the
+      # interpreter can build a GUI at all.
+      - name: Check the interpreter can build a GUI
+        run: python3 -c "import tkinter; print('Tk', tkinter.TkVersion)"
 
       - name: Build
         env:

@@ -5,6 +5,8 @@ download and relaunch still live there.
 """
 
 import json
+import os
+import platform
 import sys
 import time
 import urllib.error
@@ -57,18 +59,23 @@ def latest_release_download_url(release: dict):
             candidates.append((name, url))
 
     if sys.platform == "darwin":
-        preferred_patterns = (
-            ("macos", ".zip"),
-            (".dmg",),
-            (".zip",),
-        )
+        # Never fall through to a bare ".zip" here: the Windows archive would
+        # match it. A Mac with no recognised architecture gets whatever macOS
+        # build exists; a known one gets its own.
+        arch = macos_arch()
+        if arch == "arm64":
+            # Apple silicon runs the Intel build under Rosetta if it must; an
+            # Intel Mac cannot run the arm64 build at all, so it never falls back.
+            preferred_patterns = (("macos", "arm64", ".zip"), ("macos", "x86_64", ".zip"))
+        elif arch:
+            preferred_patterns = (("macos", arch, ".zip"),)
+        else:
+            preferred_patterns = (("macos", ".zip"),)
     elif sys.platform.startswith("linux"):
-        preferred_patterns = (
-            ("linux", ".tar.gz"),
-            ("linux", ".zip"),
-            (".tar.gz",),
-            (".zip",),
-        )
+        # Same rule: an archive built for another architecture -- or for
+        # another platform entirely -- is worse than offering no download.
+        arch = linux_arch()
+        preferred_patterns = (("linux", arch, ".tar.gz"),) if arch else (("linux", ".tar.gz"),)
     else:
         preferred_patterns = (
             ("setup", ".exe"),
@@ -80,7 +87,31 @@ def latest_release_download_url(release: dict):
         for name, url in candidates:
             if all(part in name for part in pattern):
                 return url
+    # Guessing means handing over a binary for the wrong architecture or
+    # another platform entirely; better to send the user to the release page.
+    # Windows keeps its historical last-resort behaviour.
+    if sys.platform == "darwin" or sys.platform.startswith("linux"):
+        return ""
     return candidates[0][1] if candidates else ""
+
+
+def linux_arch() -> str:
+    """This machine's architecture as the Linux release assets spell it.
+
+    ``build_linux.sh`` names its tarball after ``uname -m``, so the value is
+    taken verbatim: an arm64 Linux archive is "aarch64", never "arm64".
+    """
+    return platform.machine().lower()
+
+
+def macos_arch() -> str:
+    """This Mac's architecture as the macOS release assets spell it."""
+    machine = platform.machine().lower()
+    if machine in ("arm64", "aarch64"):
+        return "arm64"
+    if machine in ("x86_64", "amd64"):
+        return "x86_64"
+    return ""
 
 
 def fetch_latest_release():
@@ -134,11 +165,46 @@ def is_installed_build() -> bool:
     return (exe_dir / "unins000.exe").exists() or (exe_dir / "unins000.dat").exists()
 
 
-def is_setup_asset_url(url: str) -> bool:
+def app_bundle_path():
+    """The ``.app`` this build runs from, or None when it is not inside one.
+
+    A dev run and the bare CLI binary both return None: there is no bundle to
+    swap, so they are told to download instead.
+    """
+    if sys.platform != "darwin" or getattr(sys, "_MEIPASS", None) is None:
+        return None
+    try:
+        executable = Path(sys.executable).resolve()
+    except OSError:
+        return None
+    for parent in executable.parents:
+        if parent.suffix == ".app":
+            return parent
+    return None
+
+
+def is_updatable_asset_url(url: str) -> bool:
+    """Whether this asset is one the app knows how to install by itself."""
     if not url:
         return False
     name = url.rsplit("/", 1)[-1].lower()
+    if sys.platform == "darwin":
+        return name.startswith("hwp2pdf-macos-") and name.endswith(".zip")
     return name.startswith("hwp2pdf-setup-") and name.endswith(".exe")
+
+
+def can_auto_update() -> bool:
+    """Whether this build can replace itself in place.
+
+    Windows needs the Inno Setup installer that put it there. macOS needs a
+    ``.app`` sitting in a directory this user can write, since the update is a
+    bundle swap -- an app in /Applications on a machine where the user is not
+    an admin has to go through the download page instead.
+    """
+    if sys.platform == "darwin":
+        bundle = app_bundle_path()
+        return bundle is not None and os.access(bundle.parent, os.W_OK)
+    return is_installed_build()
 
 
 UPDATE_STATE_PATH = paths.update_state_path()

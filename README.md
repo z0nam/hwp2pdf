@@ -71,7 +71,7 @@ to a Windows **conversion server** over HTTP.
 
 **Linux (원격 변환)**
 
-- Ubuntu 20.04+ 또는 호환 배포판
+- Ubuntu 22.04+ 또는 호환 배포판
 - 한컴오피스가 설치된 Windows 컴퓨터에서 `hwp2pdf-cli serve` 실행 중일 것
   (또는 `--rhwp-fallback` 로컬 변환)
 
@@ -91,7 +91,7 @@ to a Windows **conversion server** over HTTP.
 
 **Linux (remote conversion)**
 
-- Ubuntu 20.04+ or compatible distribution
+- Ubuntu 22.04+ or compatible distribution
 - A Windows machine with Hancom Office running `hwp2pdf-cli serve` (or use `--rhwp-fallback` for local fallback)
 
 개발자 또는 소스 실행 사용자는 Python 3.10+가 필요합니다. Windows에서는 `pywin32`,

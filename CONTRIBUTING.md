@@ -138,8 +138,9 @@ switched on and nothing is uploaded by hand.
    gh release create vYYYY.MM.DD.N --title vYYYY.MM.DD.N --notes-file notes.md
    ```
 
-   `.github/workflows/release.yml` then builds macOS arm64, macOS Intel, the
-   three Windows executables and the installer, and attaches all seven files.
+   `.github/workflows/release.yml` then builds macOS arm64, macOS Intel, Linux
+   x86_64, the three Windows executables and the installer, and attaches all
+   eight files.
    It takes a few minutes; watch it on the Actions tab.
 5. If this release changed `API_VERSION` in `src/hwp2pdf/server/protocol.py`,
    update the conversion server machines in the same pass: the client compares
@@ -147,7 +148,7 @@ switched on and nothing is uploaded by hand.
    server can be updated whenever convenient — build versions do not have to
    match, only the protocol does. A mismatch fails closed with a clear message
    rather than misbehaving.
-6. Confirm the release ended up with all seven assets. If any are missing, the
+6. Confirm the release ended up with all eight assets. If any are missing, the
    build failed — fix it and re-run rather than uploading by hand:
 
    ```bash
