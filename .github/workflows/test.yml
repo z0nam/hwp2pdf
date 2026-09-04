@@ -25,6 +25,9 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y python3-tk
+          # Assert rather than let it show up as 35 quietly skipped GUI tests:
+          # build_linux.sh hard-fails on this import, so CI must too.
+          python -c "import tkinter; print('Tk', tkinter.TkVersion)"
       - name: Install dependencies
         # requirements.txt brings pywin32 on Windows; without it the COM-backed
         # tests degrade to their "not available" path and prove nothing.
