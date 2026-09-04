@@ -17,6 +17,9 @@ sys.path.insert(0, str(ROOT / "src"))
 from hwp2pdf.version import __version__  # noqa: E402
 
 LAZY_IMPORTS = [
+    # Imported inside a function so the CA bundle travels with the build; see
+    # hwp2pdf/certs.py for why a frozen app cannot use the platform's path.
+    "certifi",
     # Reached through create_backend() and the `serve` subcommand.
     "hwp2pdf.backends.remote_http",
     "hwp2pdf.backends.windows_com",

@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from hwp2pdf import paths
+from hwp2pdf import certs, paths
 from hwp2pdf.version import __version__
 
 GITHUB_RELEASES_API_URL = "https://api.github.com/repos/z0nam/hwp2pdf/releases/latest"
@@ -138,7 +138,7 @@ def fetch_latest_release():
             "User-Agent": f"hwp2pdf/{__version__}",
         },
     )
-    with urllib.request.urlopen(request, timeout=10) as response:
+    with certs.urlopen(request, timeout=10) as response:
         return json.loads(response.read().decode("utf-8"))
 
 

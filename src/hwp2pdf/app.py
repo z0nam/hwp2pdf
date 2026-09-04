@@ -15,7 +15,7 @@ from tkinter import font as tkfont
 from tkinter import filedialog, messagebox, ttk
 from tkinterdnd2 import DND_FILES, TkinterDnD
 
-from hwp2pdf import config
+from hwp2pdf import certs, config
 from hwp2pdf.backends import BackendUnavailable, create_backend
 from hwp2pdf.backends.local_rhwp import find_rhwp
 from hwp2pdf.backends.windows_com import (
@@ -1704,7 +1704,7 @@ class ConverterApp:
             req = urllib.request.Request(
                 url, headers={"User-Agent": f"hwp2pdf/{__version__}", "Accept": "application/octet-stream"}
             )
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with certs.urlopen(req, timeout=60) as resp:
                 total = int(resp.headers.get("Content-Length") or 0)
                 written = 0
                 last_pct = -5

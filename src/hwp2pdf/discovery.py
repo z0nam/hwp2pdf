@@ -37,6 +37,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from hwp2pdf import certs
 from hwp2pdf.constants import APP_NAME
 from hwp2pdf.server import protocol
 
@@ -215,7 +216,7 @@ def probe(url: str, timeout: float = PROBE_TIMEOUT):
     if not base:
         return None
     try:
-        with urllib.request.urlopen(base + protocol.PATH_HEALTH, timeout=timeout) as response:
+        with certs.urlopen(base + protocol.PATH_HEALTH, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
         return None

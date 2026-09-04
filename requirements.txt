@@ -1,2 +1,4 @@
+# Frozen builds cannot rely on the build machine's OpenSSL cert path.
+certifi>=2024.2.2
 pywin32>=306; platform_system == "Windows"
 tkinterdnd2>=0.6.2

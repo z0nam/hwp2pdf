@@ -12,6 +12,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+from hwp2pdf import certs
 from hwp2pdf.backends.base import BackendCapabilities, BackendUnavailable, JobResult
 from hwp2pdf.constants import OUTPUT_FORMATS
 from hwp2pdf.i18n import translate
@@ -63,7 +64,7 @@ class RemoteHttpBackend:
             request.add_header(protocol.AUTH_HEADER, f"{protocol.AUTH_SCHEME} {self.token}")
         for key, value in (headers or {}).items():
             request.add_header(key, value)
-        return urllib.request.urlopen(request, timeout=timeout)
+        return certs.urlopen(request, timeout=timeout)
 
     def _json(self, method, path, *, payload=None, timeout, retries=0, authorize=True):
         body = None

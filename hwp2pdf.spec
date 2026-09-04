@@ -37,6 +37,7 @@ a_gui = Analysis(
         *SECURITY_DLL_DATAS,
     ],
     hiddenimports=[
+        "certifi",
         "_tkinter", "pythoncom", "pywintypes",
         "win32com", "win32com.client",
         "win32gui", "win32con", "win32process",
@@ -81,6 +82,7 @@ a_cli = Analysis(
     binaries=RHWP_BINARIES,
     datas=SECURITY_DLL_DATAS,
     hiddenimports=[
+        "certifi",
         "pythoncom", "pywintypes",
         "win32com", "win32com.client",
         "win32gui", "win32con", "win32process",
@@ -128,6 +130,7 @@ a_serve = Analysis(
     binaries=[],
     datas=SECURITY_DLL_DATAS,
     hiddenimports=[
+        "certifi",
         "pythoncom", "pywintypes",
         "win32com", "win32com.client",
         "win32gui", "win32con", "win32process",

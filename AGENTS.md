@@ -38,6 +38,15 @@ to that release.
 - After publishing, confirm the release ends up with all eight assets. CI
   failures show up on the Actions tab, not in the release itself.
 
+## Testing a release build
+
+A locally built app is not the artifact users get. It links against the
+developer machine's OpenSSL, whose certificate path exists here and nowhere
+else, so a local build reaches HTTPS even when the shipped one cannot -- which
+is how a macOS release went out unable to check for updates at all. Anything
+touching network trust, code signing, or bundled data files has to be checked
+against an installed CI artifact, not `dist/`.
+
 ## Working across the two machines
 
 The repository lives on a Windows box (Hancom Office, conversion server) and a
