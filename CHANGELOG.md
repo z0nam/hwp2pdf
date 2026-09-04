@@ -6,19 +6,31 @@
 
 ## [Unreleased]
 
+## [2026.09.04.1] - 2026-09-04
+
 ### Added
+- **Linux 지원.** `hwp2pdf`(GUI)와 `hwp2pdf-cli` 리눅스 바이너리를 빌드하고
+  `hwp2pdf-linux-<arch>-<버전>.tar.gz`로 배포합니다. macOS와 마찬가지로 리눅스에도
+  자동화 가능한 한컴 엔진이 없으므로, 한글이 설치된 Windows 변환 서버에 붙어
+  동작합니다. Ubuntu 22.04+ 또는 호환 배포판이 필요합니다.
+  - `scripts/build_linux.sh`, `scripts/check_linux.sh`, `hwp2pdf-linux.spec` 추가.
+  - 릴리스 CI가 리눅스 아카이브까지 만들어 붙입니다 — 이제 자산이 **여덟 개**입니다.
+  - 테스트 CI 매트릭스에 `ubuntu-22.04`를 추가했습니다.
 - **macOS 자동 업데이트.** `자동 업데이트` 버튼이 맥에서도 나옵니다. 누르면 새 버전을
   받아 앱 번들을 교체하고 새 버전으로 다시 엽니다 — Windows의 설치 파일 경로와 같은
   경험입니다. 앱이 쓰기 가능한 위치에 있어야 하며, 아니면 그 사실을 알리고 다운로드
   페이지로 보냅니다.
 
 ### Fixed
-- **맥 업데이트가 아키텍처를 안 가리던 문제.** 모든 맥에 `arm64` 빌드를 내려보내서
-  인텔맥에서는 실행조차 되지 않았습니다. 이제 각자 아키텍처에 맞는 자산을 고르고,
-  애플실리콘만 (Rosetta로 돌아가므로) 인텔 빌드로 대체할 수 있습니다. 맞는 자산이
-  없으면 엉뚱한 걸 주는 대신 릴리스 페이지로 보냅니다.
-- 맥에서 자동 업데이트 자산을 못 찾으면 `hwp2pdf-windows-*.zip`을 집을 수 있던
-  폴백을 제거했습니다.
+- **업데이트가 아키텍처를 안 가리던 문제.** 모든 맥에 `arm64` 빌드를 내려보내서
+  인텔맥에서는 실행조차 되지 않았습니다. 이제 맥·리눅스 모두 자기 아키텍처에 맞는
+  자산을 고릅니다. 애플실리콘만 (Rosetta로 돌아가므로) 인텔 빌드로 대체할 수 있고,
+  맞는 자산이 없으면 엉뚱한 걸 주는 대신 릴리스 페이지로 보냅니다.
+- **다른 플랫폼 자산을 집던 폴백 제거.** 맥·리눅스에서 자기 자산을 못 찾으면
+  `hwp2pdf-windows-*.zip`을 내려받을 수 있었습니다.
+- 리눅스 릴리스 빌드가 의존성 설치 전에 preflight를 돌려 항상 실패하던 문제와,
+  `ubuntu-latest`(24.04)에서 빌드해 문서가 약속한 것보다 높은 glibc를 요구하던 문제를
+  고쳤습니다. 빌드는 `ubuntu-22.04`에서 합니다.
 
 ## [2026.09.02.3] - 2026-09-02
 
@@ -279,7 +291,8 @@
 
 ---
 
-[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.09.02.3...HEAD
+[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.09.04.1...HEAD
+[2026.09.04.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.04.1
 [2026.09.02.3]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.02.3
 [2026.09.02.2]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.02.2
 [2026.09.02.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.02.1
