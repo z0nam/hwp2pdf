@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [2026.09.04.3] - 2026-09-04
+
 ### Fixed
 - **배포된 맥 앱이 HTTPS를 전혀 쓰지 못하던 문제.** 파이썬의 `ssl`은 인터프리터를
   *빌드할 때* OpenSSL이 박아둔 경로에서 CA 인증서를 찾는데, PyInstaller로 얼려
@@ -316,7 +318,8 @@
 
 ---
 
-[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.09.04.2...HEAD
+[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.09.04.3...HEAD
+[2026.09.04.3]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.04.3
 [2026.09.04.2]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.04.2
 [2026.09.04.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.04.1
 [2026.09.02.3]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.02.3
