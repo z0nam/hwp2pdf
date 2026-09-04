@@ -9,7 +9,10 @@ import tkinter as tk  # noqa: E402
 from tkinter import ttk  # noqa: E402
 from tkinterdnd2 import TkinterDnD  # noqa: E402
 
+import time  # noqa: E402
+
 from hwp2pdf import config, discovery  # noqa: E402
+from hwp2pdf.version import __version__  # noqa: E402
 from hwp2pdf.server.protocol import DEFAULT_PORT  # noqa: E402
 from hwp2pdf.app import ConverterApp  # noqa: E402
 from hwp2pdf.i18n import TEXT  # noqa: E402
@@ -515,3 +518,51 @@ def test_picking_a_server_that_needs_a_token_stops_to_ask_for_one(app):
     # No connection test fires while the token box is still empty.
     assert app.server_test_running is False
     assert app.server_status_var.get() == app.tr("server_find_needs_token")
+
+
+# -- being told about updates ---------------------------------------------
+
+def test_clicking_the_version_line_asks_again_right_away(app, monkeypatch):
+    monkeypatch.setattr("hwp2pdf.app.threading.Thread", _NoThread)
+    # A check that just happened: the ordinary cadence would say "not yet".
+    monkeypatch.setattr("hwp2pdf.app.load_update_state", lambda: {"checked_at": time.time()})
+    monkeypatch.setattr("hwp2pdf.app.should_check_updates", lambda _state: False)
+
+    app.check_for_updates_if_due()
+    assert app.update_check_running is False
+
+    app.ui["update_status_label"].event_generate("<Button-1>")
+    assert app.update_check_running is True
+    assert app.update_status_var.get() == app.tr("update_status_checking")
+
+
+def test_an_urgent_release_says_so_on_the_status_line(app):
+    ordinary = {"status": "newer", "latest": "9999.01.01.1", "priority": ""}
+    app._apply_update_state(ordinary)
+    assert app.update_status_var.get() == app.tr(
+        "update_status_available", current=__version__, latest="9999.01.01.1"
+    )
+
+    app._apply_update_state(dict(ordinary, priority="critical"))
+    assert app.update_status_var.get() == app.tr(
+        "update_status_critical", current=__version__, latest="9999.01.01.1"
+    )
+
+
+def test_an_urgent_release_prompts_and_an_ordinary_one_does_not(app, monkeypatch):
+    asked = []
+    monkeypatch.setattr("hwp2pdf.app.messagebox.askyesno",
+                        lambda *a, **k: asked.append(a[1]) or False)
+
+    app._warn_if_update_is_urgent({"priority": "", "latest": "9999.01.01.1"})
+    assert asked == []
+
+    app._warn_if_update_is_urgent({"priority": "critical", "latest": "9999.01.01.1"})
+    assert asked == [app.tr("update_critical_prompt", latest="9999.01.01.1")]
+
+
+def test_an_urgent_release_we_already_have_does_not_nag(app, monkeypatch):
+    asked = []
+    monkeypatch.setattr("hwp2pdf.app.messagebox.askyesno", lambda *a, **k: asked.append(a) or False)
+    app._warn_if_update_is_urgent({"priority": "critical", "latest": __version__})
+    assert asked == []

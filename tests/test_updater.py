@@ -185,3 +185,44 @@ def test_a_bundle_the_user_cannot_replace_is_not_auto_updatable(monkeypatch, tmp
         assert updater.can_auto_update() is False
     finally:
         holder.chmod(0o700)
+
+
+# -- urgent releases -------------------------------------------------------
+
+@pytest.mark.parametrize("body", [
+    "hwp2pdf-priority: critical",
+    "Security fix.\n\nhwp2pdf-priority: critical\n\nDetails below.",
+    "HWP2PDF-PRIORITY: CRITICAL",          # the marker is not case-sensitive
+])
+def test_a_release_can_declare_itself_urgent(body):
+    assert updater.release_is_critical({"body": body}) is True
+
+
+@pytest.mark.parametrize("body", ["", None, "Just an ordinary release.", "critical"])
+def test_an_ordinary_release_is_not_urgent(body):
+    assert updater.release_is_critical({"body": body}) is False
+
+
+def test_a_release_with_no_body_at_all_is_not_urgent():
+    assert updater.release_is_critical({}) is False
+
+
+def test_an_outstanding_urgent_update_is_chased_harder(monkeypatch):
+    now = 1_000_000.0
+    monkeypatch.setattr(updater.time, "time", lambda: now)
+    two_hours_ago = {"checked_at": now - 2 * 3600}
+
+    assert updater.should_check_updates(dict(two_hours_ago)) is False
+    assert updater.should_check_updates(dict(two_hours_ago, priority="critical")) is True
+
+
+def test_the_ordinary_cadence_still_waits(monkeypatch):
+    now = 1_000_000.0
+    monkeypatch.setattr(updater.time, "time", lambda: now)
+    assert updater.should_check_updates({"checked_at": now - 5 * 3600}) is False
+    assert updater.should_check_updates({"checked_at": now - 7 * 3600}) is True
+
+
+def test_a_state_with_no_timestamp_checks_immediately():
+    assert updater.should_check_updates({}) is True
+    assert updater.should_check_updates({"checked_at": "nonsense"}) is True

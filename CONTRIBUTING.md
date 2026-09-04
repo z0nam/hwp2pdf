@@ -148,7 +148,20 @@ switched on and nothing is uploaded by hand.
    server can be updated whenever convenient — build versions do not have to
    match, only the protocol does. A mismatch fails closed with a clear message
    rather than misbehaving.
-6. Confirm the release ended up with all eight assets. If any are missing, the
+6. If the release fixes something users must not sit on -- a security problem,
+   data loss, a conversion that silently produces wrong output -- put this line
+   anywhere in the release notes:
+
+   ```
+   hwp2pdf-priority: critical
+   ```
+
+   The app then says so on its status line instead of quietly naming a version,
+   prompts on launch while the update is outstanding, and re-checks hourly
+   rather than on the ordinary six-hour cadence. Use it sparingly: a prompt
+   that appears for every release is one people learn to dismiss.
+
+7. Confirm the release ended up with all eight assets. If any are missing, the
    build failed — fix it and re-run rather than uploading by hand:
 
    ```bash

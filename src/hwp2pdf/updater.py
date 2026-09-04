@@ -22,7 +22,18 @@ GITHUB_RELEASES_API_URL = "https://api.github.com/repos/z0nam/hwp2pdf/releases/l
 GITHUB_RELEASES_PAGE_URL = "https://github.com/z0nam/hwp2pdf/releases/latest"
 
 
-UPDATE_CHECK_INTERVAL_SECONDS = 24 * 60 * 60
+#: A release published in the afternoon used to stay invisible until the next
+#: day. Six hours keeps the request count trivial and a same-day release
+#: reachable; clicking the version line asks immediately regardless.
+UPDATE_CHECK_INTERVAL_SECONDS = 6 * 60 * 60
+
+#: While an urgent release is outstanding the app stops waiting politely.
+CRITICAL_CHECK_INTERVAL_SECONDS = 60 * 60
+
+#: A release says it is urgent by carrying this line in its notes. GitHub has
+#: no severity field, and the marker reads sensibly to a human scrolling the
+#: release page, so it lives in the text rather than in a side channel.
+CRITICAL_MARKER = "hwp2pdf-priority: critical"
 
 
 def parse_version(value: str):
@@ -114,6 +125,11 @@ def macos_arch() -> str:
     return ""
 
 
+def release_is_critical(release: dict) -> bool:
+    """Whether the release asks to be installed now rather than eventually."""
+    return CRITICAL_MARKER.lower() in str(release.get("body") or "").lower()
+
+
 def fetch_latest_release():
     request = urllib.request.Request(
         GITHUB_RELEASES_API_URL,
@@ -149,7 +165,12 @@ def should_check_updates(state: dict):
         checked_at = float(state.get("checked_at", 0))
     except (TypeError, ValueError):
         checked_at = 0
-    return time.time() - checked_at >= UPDATE_CHECK_INTERVAL_SECONDS
+    interval = (
+        CRITICAL_CHECK_INTERVAL_SECONDS
+        if state.get("priority") == "critical"
+        else UPDATE_CHECK_INTERVAL_SECONDS
+    )
+    return time.time() - checked_at >= interval
 
 
 def is_installed_build() -> bool:

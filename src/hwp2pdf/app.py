@@ -35,6 +35,7 @@ IS_MACOS = sys.platform == "darwin"
 from hwp2pdf.server import protocol
 from hwp2pdf.updater import (
     GITHUB_RELEASES_PAGE_URL,
+    release_is_critical,
     UPDATE_DOWNLOAD_DIR,
     app_bundle_path,
     can_auto_update,
@@ -576,8 +577,11 @@ class ConverterApp:
 
         update_row = ttk.Frame(top)
         update_row.grid(row=5, column=0, sticky="w", pady=(4, 0))
-        self.ui["update_status_label"] = ttk.Label(update_row, textvariable=self.update_status_var)
+        self.ui["update_status_label"] = ttk.Label(
+            update_row, textvariable=self.update_status_var, cursor="hand2"
+        )
         self.ui["update_status_label"].pack(side="left")
+        self.ui["update_status_label"].bind("<Button-1>", self._on_version_clicked)
         self.auto_update_btn = ttk.Button(update_row, command=self.start_auto_update)
         self.auto_update_btn.pack(side="left", padx=(8, 0))
         self.auto_update_btn.pack_forget()
@@ -1594,22 +1598,13 @@ class ConverterApp:
                     self.root.after(1500, self._exit_for_update)
 
                 elif kind == "update_done":
-                    if len(payload) == 5:
-                        status, latest, release_url, download_url, error_message = payload
-                    else:
-                        status, latest, release_url, error_message = payload
-                        download_url = release_url
+                    # Producer and consumer are the same process, so this is a
+                    # plain dict rather than a positional tuple to unpack.
                     self.update_check_running = False
-                    state = {
-                        "checked_at": time.time(),
-                        "status": status,
-                        "latest": latest,
-                        "release_url": release_url,
-                        "download_url": download_url,
-                        "error": error_message,
-                    }
+                    state = {"checked_at": time.time(), **payload}
                     save_update_state(state)
                     self._apply_update_state(state)
+                    self._warn_if_update_is_urgent(state)
 
         except queue.Empty:
             pass
@@ -1650,7 +1645,11 @@ class ConverterApp:
         self.latest_download_url = download_url
 
         if status == "newer" and latest and parse_version(latest) > parse_version(__version__):
-            self.update_status_var.set(self.tr("update_status_available", current=__version__, latest=latest))
+            urgent = state.get("priority") == "critical"
+            self.update_status_var.set(self.tr(
+                "update_status_critical" if urgent else "update_status_available",
+                current=__version__, latest=latest,
+            ))
             self._show_upgrade_button(True)
             self._show_auto_update_button(
                 can_auto_update() and is_updatable_asset_url(self.latest_download_url)
@@ -1931,9 +1930,27 @@ class ConverterApp:
             pass
         raise SystemExit(0)
 
-    def check_for_updates_if_due(self):
+    def _on_version_clicked(self, _event=None):
+        """Ask now. No dialog and no button -- the line itself is the way in."""
+        self.check_for_updates_if_due(force=True)
+
+    def _warn_if_update_is_urgent(self, state: dict):
+        """Say it out loud when a release asks to be installed now.
+
+        Repeats on every check while the update is outstanding: an urgent fix
+        the user scrolled past is exactly the one that must not go unnoticed.
+        """
+        if state.get("priority") != "critical":
+            return
+        latest = state.get("latest") or ""
+        if not latest or parse_version(latest) <= parse_version(__version__):
+            return
+        if messagebox.askyesno(APP_TITLE, self.tr("update_critical_prompt", latest=latest)):
+            self.start_auto_update()
+
+    def check_for_updates_if_due(self, force: bool = False):
         state = load_update_state()
-        if self.update_check_running or not should_check_updates(state):
+        if self.update_check_running or (not force and not should_check_updates(state)):
             return
 
         self.update_check_running = True
@@ -1947,17 +1964,32 @@ class ConverterApp:
             latest = latest_release_version(release)
             release_url = release.get("html_url") or GITHUB_RELEASES_PAGE_URL
             download_url = latest_release_download_url(release) or release_url
-            if latest and parse_version(latest) > parse_version(__version__):
-                self.log_queue.put(("update_done", ("newer", latest, release_url, download_url, "")))
-            else:
-                self.log_queue.put(("update_done", ("current", latest or __version__, release_url, download_url, "")))
+            newer = bool(latest) and parse_version(latest) > parse_version(__version__)
+            self.log_queue.put(("update_done", {
+                "status": "newer" if newer else "current",
+                "latest": latest or __version__,
+                "release_url": release_url,
+                "download_url": download_url,
+                "error": "",
+                # Only an update we do not have yet can be urgent.
+                "priority": "critical" if newer and release_is_critical(release) else "",
+            }))
         except urllib.error.HTTPError as e:
             if e.code == 404:
-                self.log_queue.put(("update_done", ("no_release", "", "", "", "")))
+                self.log_queue.put(("update_done", {
+                    "status": "no_release", "latest": "", "release_url": "",
+                    "download_url": "", "error": "", "priority": "",
+                }))
             else:
-                self.log_queue.put(("update_done", ("error", "", "", "", str(e))))
+                self.log_queue.put(("update_done", {
+                    "status": "error", "latest": "", "release_url": "",
+                    "download_url": "", "error": str(e), "priority": "",
+                }))
         except Exception as e:
-            self.log_queue.put(("update_done", ("error", "", "", "", str(e))))
+            self.log_queue.put(("update_done", {
+                "status": "error", "latest": "", "release_url": "",
+                "download_url": "", "error": str(e), "priority": "",
+            }))
 
     def _confirm_local_engine_ready(self, output_formats, rhwp_path: str = "") -> str:
         """Resolve an existing HWP process before starting the local engine.
