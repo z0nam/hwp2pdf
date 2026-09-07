@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [2026.09.07.2] - 2026-09-07
+
 ### Changed
 - **변환 로그가 이제 실제로 보입니다.** 로그 위젯이 높이를 지정받지 않아 기본 24줄을
   요구하다가 남은 1px로 눌리는 바람에, 창을 손으로 키우기 전에는 보이지 않았습니다 —
@@ -345,7 +347,8 @@
 
 ---
 
-[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.09.07.1...HEAD
+[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.09.07.2...HEAD
+[2026.09.07.2]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.07.2
 [2026.09.07.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.07.1
 [2026.09.04.3]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.04.3
 [2026.09.04.2]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.04.2
