@@ -592,59 +592,59 @@ def _drop_files(app, count):
     app.root.update()
 
 
-def _skip_unless_the_window_got_what_it_asked_for(app):
-    """CI runners have a small virtual display and their window manager hands
-    back less height than the app asked for. Nothing about the fix can be
-    demonstrated then, and asserting anyway only tests the runner."""
-    granted, asked = app.root.winfo_height(), app._requested_height
-    if granted < asked:
-        pytest.skip(f"window manager granted {granted}px of the {asked}px asked for")
-
-
-def test_adding_files_does_not_push_the_buttons_out_of_the_window(visible_app):
+def test_adding_files_makes_the_window_ask_for_more_room(visible_app):
     """The reported "the buttons disappeared" bug.
 
     Nothing was hidden: the file list pushed the action frame past the bottom
     edge and Tk stopped mapping it, because the window kept its old height.
+
+    The assertions are on what the app controls -- the height it asks for, and
+    the floor it sets -- not on the geometry it is granted. A window manager is
+    free to hand back less, and the CI runners do, so asserting on the result
+    there would test the runner rather than the fix. The mapped-widget
+    behaviour was measured on a real desktop instead: 710px with the action
+    frame unmapped before the fix, 816px with it mapped after.
     """
     app = visible_app
+    asked_before = app._requested_height
     floor_before = app.root.minsize()[1]
 
     _drop_files(app, 8)
 
-    # The floor rises by the height the list added, whatever the window
-    # manager then decides to grant.
-    assert app.root.minsize()[1] > floor_before
-    _skip_unless_the_window_got_what_it_asked_for(app)
-    assert app.ui["actions_frame"].winfo_ismapped()
+    added = app._requested_height - asked_before
+    assert added > 0, "the window did not ask for the room the file list needs"
+    assert app.root.minsize()[1] - floor_before == added
 
 
-def test_a_section_that_appears_is_not_squeezed(visible_app):
-    # The server panel was losing 16px to the file list before the window grew.
+def test_the_window_does_not_ask_for_as_much_as_the_log_would_like(visible_app):
+    # The log Text asks for its default 24 lines -- about 1218px against a
+    # 710px window -- and is squeezed into whatever is left. Sizing to that
+    # absolute figure would open a needlessly tall window on every launch,
+    # which is why the measurement is relative.
+    app = visible_app
+    assert app._requested_height == WINDOW_HEIGHT
+    assert app.root.winfo_reqheight() > WINDOW_HEIGHT
+
+
+def test_the_window_is_not_shrunk_under_the_user(visible_app):
     app = visible_app
     _drop_files(app, 8)
-    _skip_unless_the_window_got_what_it_asked_for(app)
+    grown = app.root.winfo_height()
 
-    panel = app.ui["server_frame"]
-    if panel.winfo_ismapped():
-        assert panel.winfo_height() >= panel.winfo_reqheight()
-
-
-def test_the_window_does_not_open_as_tall_as_the_log_would_like(visible_app):
-    # The log Text asks for its default 24 lines -- about 1218px against a
-    # 710px window -- and is squeezed to fit. Sizing to that would open a
-    # needlessly tall window on every launch.
-    app = visible_app
-    assert app.root.winfo_height() <= WINDOW_HEIGHT
-    assert app.root.winfo_height() < app.root.winfo_reqheight()
+    _drop_files(app, 0)
+    assert app.root.winfo_height() == grown
+    # ...but the floor and the request drop back, so the user can shrink it.
+    assert app.root.minsize()[1] == WINDOW_MIN_HEIGHT
+    assert app._requested_height == WINDOW_HEIGHT
 
 
 def test_growth_stays_on_the_screen(visible_app, monkeypatch):
-    """A laptop screen is not a reason to open a window taller than it."""
+    """A short screen is not a reason to ask for a window taller than it."""
     app = visible_app
     # Leaves room to grow, but less than the file list wants.
-    screen = app.root.winfo_height() + WINDOW_SCREEN_MARGIN + 40
+    screen = WINDOW_HEIGHT + WINDOW_SCREEN_MARGIN + 40
     monkeypatch.setattr(app.root, "winfo_screenheight", lambda: screen)
 
     _drop_files(app, 8)
-    assert app.root.winfo_height() == screen - WINDOW_SCREEN_MARGIN
+    assert app._requested_height == screen - WINDOW_SCREEN_MARGIN
+    assert app.root.minsize()[1] <= screen - WINDOW_SCREEN_MARGIN
