@@ -449,6 +449,7 @@ class ConverterApp:
         #: Requested height with no optional section on screen; the
         #: baseline every later measurement is compared against.
         self._resting_reqheight = None
+        self._requested_height = WINDOW_HEIGHT
         self._save_settings_job = None
 
         self.log_queue = queue.Queue()
@@ -1141,6 +1142,10 @@ class ConverterApp:
         self.root.minsize(WINDOW_MIN_WIDTH, min(WINDOW_MIN_HEIGHT + extra, limit))
 
         target = min(WINDOW_HEIGHT + extra, limit)
+        #: What the layout last asked the window manager for. It is free to
+        #: refuse -- a small display, a tiling manager -- and the difference is
+        #: how a caller can tell "did not fit" from "was not granted".
+        self._requested_height = target
         if target > self.root.winfo_height():
             self.root.geometry(f"{self.root.winfo_width()}x{target}")
             self._keep_window_on_screen(target)

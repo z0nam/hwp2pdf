@@ -593,11 +593,12 @@ def _drop_files(app, count):
 
 
 def _skip_unless_the_window_got_what_it_asked_for(app):
-    """CI runners have a small virtual display and the window manager clamps
-    the window below the height we requested. Nothing about the fix can be
+    """CI runners have a small virtual display and their window manager hands
+    back less height than the app asked for. Nothing about the fix can be
     demonstrated then, and asserting anyway only tests the runner."""
-    if app.root.winfo_height() < app.root.minsize()[1]:
-        pytest.skip("window manager clamped the window; no room to grow into")
+    granted, asked = app.root.winfo_height(), app._requested_height
+    if granted < asked:
+        pytest.skip(f"window manager granted {granted}px of the {asked}px asked for")
 
 
 def test_adding_files_does_not_push_the_buttons_out_of_the_window(visible_app):
