@@ -12,6 +12,7 @@ from tkinterdnd2 import TkinterDnD  # noqa: E402
 import time  # noqa: E402
 from pathlib import Path  # noqa: E402
 
+import hwp2pdf.app as app_module  # noqa: E402
 from hwp2pdf import config, discovery  # noqa: E402
 from hwp2pdf.version import __version__  # noqa: E402
 from hwp2pdf.server.protocol import DEFAULT_PORT  # noqa: E402
@@ -104,6 +105,35 @@ def test_connection_test_without_an_address_reports_instead_of_hanging(app):
     app.test_server_connection()
     assert app.server_test_running is False
     assert app.server_status_var.get()
+
+
+def test_windows_update_helper_stops_only_its_own_server_and_resets_pyi(app, tmp_path, monkeypatch):
+    update_dir = tmp_path / "updates"
+    update_dir.mkdir()
+    setup = tmp_path / "hwp2pdf-setup.exe"
+    setup.write_bytes(b"setup")
+
+    monkeypatch.setattr(app_module, "UPDATE_DOWNLOAD_DIR", update_dir)
+
+    class Helper:
+        def poll(self):
+            return None
+
+        def terminate(self):
+            pass
+
+    def fake_popen(*_args, **_kwargs):
+        (update_dir / "hwp2pdf-update.ready").write_text("ready", encoding="ascii")
+        return Helper()
+
+    monkeypatch.setattr(app_module.subprocess, "Popen", fake_popen)
+    app._launch_installer_and_signal_exit(setup)
+
+    script = (update_dir / "hwp2pdf-update.ps1").read_text(encoding="utf-8-sig")
+    assert "hwp2pdf-serve.exe" in script
+    assert "Get-CimInstance Win32_Process" in script
+    assert "Stop-Process -Id $_.ProcessId -Force" in script
+    assert "PYINSTALLER_RESET_ENVIRONMENT = '1'" in script
 
 
 # -- multi-file selection alongside the server panel ---------------------

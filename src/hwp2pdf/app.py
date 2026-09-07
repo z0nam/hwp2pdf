@@ -1923,6 +1923,30 @@ class ConverterApp:
                     throw 'The app did not exit within 30 seconds.'
                 }}
                 Start-Sleep -Seconds 1
+                # The installer replaces this server binary too. It is windowless,
+                # so Restart Manager cannot always close it during a silent update.
+                # Only stop servers installed beside this GUI; never touch a server
+                # that belongs to another hwp2pdf installation.
+                $serveExe = Join-Path (Split-Path -Parent {self._ps_quote(our_exe)}) 'hwp2pdf-serve.exe'
+                $servers = @(
+                    Get-CimInstance Win32_Process -Filter "Name = 'hwp2pdf-serve.exe'" -ErrorAction SilentlyContinue |
+                    Where-Object {{ $_.ExecutablePath -and $_.ExecutablePath -ieq $serveExe }}
+                )
+                if ($servers.Count -gt 0) {{
+                    Write-UpdateLog "Stopping $($servers.Count) installed conversion server process(es)."
+                    $servers | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop }}
+                    Start-Sleep -Milliseconds 500
+                    $left = @(
+                        Get-CimInstance Win32_Process -Filter "Name = 'hwp2pdf-serve.exe'" -ErrorAction SilentlyContinue |
+                        Where-Object {{ $_.ExecutablePath -and $_.ExecutablePath -ieq $serveExe }}
+                    )
+                    if ($left.Count -gt 0) {{
+                        throw 'Could not stop the installed conversion server.'
+                    }}
+                }}
+                # This helper inherited PyInstaller's private environment from the
+                # one-file GUI. The next GUI instance must be an independent one.
+                $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
                 Write-UpdateLog 'Launching installer.'
                 $p = Start-Process -FilePath {self._ps_quote(setup_path)} `
                     -ArgumentList '/SP-','/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CLOSEAPPLICATIONS','/HWP2PDFAUTOUPDATE=1',{self._ps_quote(f'/LOG="{install_log}"')} `
@@ -1939,6 +1963,7 @@ class ConverterApp:
                 Write-UpdateLog "Update failed: $($_.Exception.Message)"
                 Remove-Item -LiteralPath {self._ps_quote(ready_path)} -Force -ErrorAction SilentlyContinue
                 if (Test-Path -LiteralPath {self._ps_quote(our_exe)}) {{
+                    $env:PYINSTALLER_RESET_ENVIRONMENT = '1'
                     Start-Process -FilePath {self._ps_quote(our_exe)}
                 }}
             }}
