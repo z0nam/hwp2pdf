@@ -636,24 +636,30 @@ def test_the_window_does_not_ask_for_as_much_as_the_log_would_like(visible_app):
     assert app.root.winfo_reqheight() > WINDOW_HEIGHT
 
 
-def test_the_window_is_not_shrunk_under_the_user(visible_app, monkeypatch):
+def test_the_window_is_never_made_smaller_than_it_is(visible_app, monkeypatch):
+    """Clearing the list must not take away room the user is looking at.
+
+    Watched through geometry() rather than by comparing heights: a window
+    manager clamps the window on its own, and a clamped window being restored
+    towards the default is a grow, not a shrink.
+    """
     app = visible_app
     _drop_files(app, 8)
+    height_before = app.root.winfo_height()
 
-    # Watch for a resize rather than comparing heights: a window manager may
-    # clamp the window on its own, and that is not the app shrinking it.
-    resized = []
+    sizes = []
     real_geometry = app.root.geometry
 
     def spy(spec=None):
         if spec and "x" in spec:          # a size, not a "+x+y" move
-            resized.append(spec)
+            sizes.append(spec)
         return real_geometry() if spec is None else real_geometry(spec)
 
     monkeypatch.setattr(app.root, "geometry", spy)
     _drop_files(app, 0)
 
-    assert resized == [], f"the window was resized under the user: {resized}"
+    for spec in sizes:
+        assert int(spec.split("x")[1]) >= height_before, f"shrank the window: {spec}"
     # The floor and the request drop back, so the user can shrink it themselves.
     assert app.root.minsize()[1] == WINDOW_MIN_HEIGHT
     assert app._requested_height == WINDOW_HEIGHT
