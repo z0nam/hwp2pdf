@@ -705,3 +705,34 @@ def test_growth_stays_on_the_screen(visible_app, monkeypatch):
     _drop_files(app, 8)
     assert app._requested_height == screen - WINDOW_SCREEN_MARGIN
     assert app.root.minsize()[1] <= screen - WINDOW_SCREEN_MARGIN
+
+
+def test_the_buttons_survive_a_window_that_cannot_grow(visible_app, monkeypatch):
+    """Ordering, not just growing, keeps the primary action reachable.
+
+    The packer hands out space in packing order, so whatever is packed last
+    loses its room first. The action row used to sit behind the options and
+    server blocks -- 442px between them -- and adding a file list was enough
+    to leave nothing for it. It is now ahead of both, so a window with no room
+    to grow starves the log and the notes instead.
+    """
+    app = visible_app
+    # A screen with no headroom: the layout has to cope by ordering alone.
+    monkeypatch.setattr(app.root, "winfo_screenheight",
+                        lambda: WINDOW_HEIGHT + WINDOW_SCREEN_MARGIN)
+
+    _drop_files(app, 8)
+
+    assert app.ui["actions_frame"].winfo_ismapped()
+    assert app.ui["progress_frame"].winfo_ismapped()
+
+
+def test_the_settings_do_not_come_before_the_button(visible_app):
+    order = [w for w in visible_app.root.pack_slaves()]
+    position = {w: i for i, w in enumerate(order)}
+    actions = position[visible_app.ui["actions_frame"]]
+
+    for key in ("opts", "server_frame"):
+        panel = visible_app.ui[key]
+        if panel in position:
+            assert position[panel] > actions, f"{key} would starve the buttons"

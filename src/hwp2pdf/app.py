@@ -738,7 +738,11 @@ class ConverterApp:
 
         actions = ttk.Frame(self.root, padding=(12, 0, 12, 12))
         self.ui["actions_frame"] = actions
-        actions.pack(fill="x")
+        # Packed before the options and server blocks, not after: the packer
+        # hands out space in this order, so anything behind those two (442px
+        # between them) is what runs out of room first. That is how the buttons
+        # went missing when the file list appeared.
+        actions.pack(fill="x", after=top)
 
         self.start_btn = ModernGradientButton(
             actions,
@@ -762,8 +766,11 @@ class ConverterApp:
         self.ui["open_btn"] = ttk.Button(actions, command=self.open_selected_folder)
         self.ui["open_btn"].pack(side="left", padx=(8, 0))
 
+        # Kept with the buttons: pressing start and watching it run should not
+        # be at opposite ends of the window.
         progress_frame = ttk.Frame(self.root, padding=(12, 0, 12, 0))
-        progress_frame.pack(fill="x")
+        self.ui["progress_frame"] = progress_frame
+        progress_frame.pack(fill="x", after=actions)
 
         self.progress_label_var = tk.StringVar()
         ttk.Label(progress_frame, textvariable=self.progress_label_var).pack(anchor="w")
@@ -1169,7 +1176,9 @@ class ConverterApp:
         # geometry manager whether the frame is in the layout at all.
         packed = frame.winfo_manager() == "pack"
         if remote and not packed:
-            frame.pack(fill="x", padx=12, pady=(0, 12), before=self.ui["actions_frame"])
+            # After the options block, so it cannot get in front of the buttons
+            # in the packing order and starve them the way it used to.
+            frame.pack(fill="x", padx=12, pady=(0, 12), after=self.ui["opts"])
         elif not remote and packed:
             frame.pack_forget()
         state = "normal" if remote else "disabled"
