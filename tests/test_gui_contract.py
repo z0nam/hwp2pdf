@@ -657,14 +657,13 @@ def test_adding_files_makes_the_window_ask_for_more_room(visible_app):
     assert app.root.minsize()[1] - floor_before == added
 
 
-def test_the_window_does_not_ask_for_as_much_as_the_log_would_like(visible_app):
-    # The log Text asks for its default 24 lines -- about 1218px against a
-    # 710px window -- and is squeezed into whatever is left. Sizing to that
-    # absolute figure would open a needlessly tall window on every launch,
-    # which is why the measurement is relative.
+def test_the_window_opens_at_its_default_size(visible_app):
+    # Sizing to winfo_reqheight() would let one greedy widget decide how tall
+    # the window opens -- the log Text asked for 24 lines before it was given
+    # a floor. The measurement is relative to the resting layout instead, so
+    # the default holds however the platform renders the widgets.
     app = visible_app
     assert app._requested_height == WINDOW_HEIGHT
-    assert app.root.winfo_reqheight() > WINDOW_HEIGHT
 
 
 def test_the_window_is_never_made_smaller_than_it_is(visible_app, monkeypatch):
