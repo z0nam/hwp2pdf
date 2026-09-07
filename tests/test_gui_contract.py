@@ -10,11 +10,17 @@ from tkinter import ttk  # noqa: E402
 from tkinterdnd2 import TkinterDnD  # noqa: E402
 
 import time  # noqa: E402
+from pathlib import Path  # noqa: E402
 
 from hwp2pdf import config, discovery  # noqa: E402
 from hwp2pdf.version import __version__  # noqa: E402
 from hwp2pdf.server.protocol import DEFAULT_PORT  # noqa: E402
-from hwp2pdf.app import ConverterApp  # noqa: E402
+from hwp2pdf.app import (  # noqa: E402
+    WINDOW_HEIGHT,
+    WINDOW_MIN_HEIGHT,
+    WINDOW_SCREEN_MARGIN,
+    ConverterApp,
+)
 from hwp2pdf.i18n import TEXT  # noqa: E402
 from hwp2pdf.paths import IS_WINDOWS  # noqa: E402
 
@@ -566,3 +572,74 @@ def test_an_urgent_release_we_already_have_does_not_nag(app, monkeypatch):
     monkeypatch.setattr("hwp2pdf.app.messagebox.askyesno", lambda *a, **k: asked.append(a) or False)
     app._warn_if_update_is_urgent({"priority": "critical", "latest": __version__})
     assert asked == []
+
+
+# -- the window keeping up with its content -------------------------------
+
+@pytest.fixture
+def visible_app(app):
+    """The layout tests need a mapped window: a withdrawn one has no geometry,
+    and "did Tk stop mapping the buttons?" is the whole question here."""
+    app.root.deiconify()
+    app.root.update()
+    yield app
+    app.root.withdraw()
+
+
+def _drop_files(app, count):
+    app.selected_files = [Path(f"/tmp/문서{i}.hwp") for i in range(count)]
+    app._refresh_file_target_list()
+    app.root.update()
+
+
+def test_adding_files_does_not_push_the_buttons_out_of_the_window(visible_app):
+    """The reported "the buttons disappeared" bug.
+
+    Nothing was hidden: the file list pushed the action frame past the bottom
+    edge and Tk stopped mapping it, because the window kept its old height.
+    """
+    app = visible_app
+    before = app.root.winfo_height()
+
+    _drop_files(app, 8)
+
+    assert app.ui["actions_frame"].winfo_ismapped()
+    assert app.root.winfo_height() > before
+
+
+def test_a_section_that_appears_is_not_squeezed(visible_app):
+    # The server panel was losing 16px to the file list before the window grew.
+    app = visible_app
+    _drop_files(app, 8)
+    panel = app.ui["server_frame"]
+    if panel.winfo_ismapped():
+        assert panel.winfo_height() >= panel.winfo_reqheight()
+
+
+def test_the_window_starts_at_its_ordinary_size(app):
+    # The log Text asks for its default 24 lines and is squeezed to fit, so
+    # sizing to the requested height would open a needlessly tall window.
+    app.root.update()
+    assert app.root.winfo_height() == WINDOW_HEIGHT
+
+
+def test_the_window_is_not_shrunk_under_the_user(visible_app):
+    app = visible_app
+    _drop_files(app, 8)
+    grown = app.root.winfo_height()
+
+    _drop_files(app, 0)
+    assert app.root.winfo_height() == grown
+    # ...but the floor drops back, so they can shrink it themselves.
+    assert app.root.minsize()[1] == WINDOW_MIN_HEIGHT
+
+
+def test_growth_stays_on_the_screen(visible_app, monkeypatch):
+    """A laptop screen is not a reason to open a window taller than it."""
+    app = visible_app
+    # Leaves room to grow, but less than the file list wants.
+    screen = app.root.winfo_height() + WINDOW_SCREEN_MARGIN + 40
+    monkeypatch.setattr(app.root, "winfo_screenheight", lambda: screen)
+
+    _drop_files(app, 8)
+    assert app.root.winfo_height() == screen - WINDOW_SCREEN_MARGIN

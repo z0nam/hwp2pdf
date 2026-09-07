@@ -389,12 +389,20 @@ STOP_BUTTON_PALETTE = {
 ENGINE_STATUS_POLL_MS = 2500
 
 
+WINDOW_WIDTH = 920
+WINDOW_HEIGHT = 710
+WINDOW_MIN_WIDTH = 820
+WINDOW_MIN_HEIGHT = 580
+#: Room left for the menu bar and the dock when the window grows.
+WINDOW_SCREEN_MARGIN = 120
+
+
 class ConverterApp:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title(APP_TITLE)
-        self.root.geometry("920x710")
-        self.root.minsize(820, 580)
+        self.root.geometry(f"{WINDOW_WIDTH}x{WINDOW_HEIGHT}")
+        self.root.minsize(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)
 
         self.settings = config.load()
         saved = self.settings["options"]
@@ -438,6 +446,9 @@ class ConverterApp:
         self.engine_status_after_id = None
         self._engine_status_snapshot = None
         self._closing = False
+        #: Requested height with no optional section on screen; the
+        #: baseline every later measurement is compared against.
+        self._resting_reqheight = None
         self._save_settings_job = None
 
         self.log_queue = queue.Queue()
@@ -927,6 +938,7 @@ class ConverterApp:
             self.ui["file_list_frame"].grid()
         else:
             self.ui["file_list_frame"].grid_remove()
+        self._fit_window_to_content()
 
     def remove_selected_files(self):
         selected_indices = set(self.file_listbox.curselection())
@@ -1097,6 +1109,50 @@ class ConverterApp:
                 self.server_transport_var.set(code)
                 return
 
+    def _fit_window_to_content(self):
+        """Grow the window when a new section is added to the layout.
+
+        Dropping files inserts a list that pushes everything below it down.
+        The window kept its size, so the buttons at the bottom slid out of
+        sight and looked as if they had disappeared -- they were there, just
+        past the edge.
+
+        The measurement is deliberately relative. ``winfo_reqheight`` is
+        dominated by the log ``Text``, which asks for its default 24 lines and
+        is squeezed to whatever is left over, so its absolute value says
+        nothing about what the window needs. How much it *changes*, though, is
+        exactly the height the new section added.
+
+        Growth only: a window the user enlarged is left alone, and the minimum
+        rises by the same amount so the bottom controls cannot be cut off
+        again.
+        """
+        if self._closing:
+            return
+        self.root.update_idletasks()
+        required = self.root.winfo_reqheight()
+        if self._resting_reqheight is None:
+            # First call, before anything optional is on screen.
+            self._resting_reqheight = required
+            return
+
+        extra = max(0, required - self._resting_reqheight)
+        limit = self.root.winfo_screenheight() - WINDOW_SCREEN_MARGIN
+        self.root.minsize(WINDOW_MIN_WIDTH, min(WINDOW_MIN_HEIGHT + extra, limit))
+
+        target = min(WINDOW_HEIGHT + extra, limit)
+        if target > self.root.winfo_height():
+            self.root.geometry(f"{self.root.winfo_width()}x{target}")
+            self._keep_window_on_screen(target)
+
+    def _keep_window_on_screen(self, height: int):
+        """A window that grew near the bottom edge is nudged back up."""
+        bottom = self.root.winfo_rooty() + height
+        overflow = bottom - (self.root.winfo_screenheight() - WINDOW_SCREEN_MARGIN)
+        if overflow > 0:
+            top = max(0, self.root.winfo_rooty() - overflow)
+            self.root.geometry(f"+{self.root.winfo_rootx()}+{top}")
+
     def use_remote_backend(self) -> bool:
         return bool(self.use_remote_var.get()) or not IS_WINDOWS
 
@@ -1124,6 +1180,7 @@ class ConverterApp:
             self.ui["notes_label"].configure(
                 text=self.tr("notes_remote" if remote else "notes")
             )
+        self._fit_window_to_content()
 
     def _refresh_rhwp_ui(self):
         """Show whether the optional local fallback can actually be used."""
@@ -1552,6 +1609,7 @@ class ConverterApp:
                     else:
                         self.ui["server_wide_btn"].grid()
                         self.server_status_var.set(self.tr("server_find_none"))
+                        self._fit_window_to_content()
 
                 elif kind == "server_test":
                     ok, detail, resolved = payload
