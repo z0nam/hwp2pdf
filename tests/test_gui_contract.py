@@ -17,6 +17,7 @@ from hwp2pdf import config, discovery  # noqa: E402
 from hwp2pdf.version import __version__  # noqa: E402
 from hwp2pdf.server.protocol import DEFAULT_PORT  # noqa: E402
 from hwp2pdf.app import (  # noqa: E402
+    LOG_MIN_LINES,
     WINDOW_HEIGHT,
     WINDOW_MIN_HEIGHT,
     WINDOW_SCREEN_MARGIN,
@@ -736,3 +737,28 @@ def test_the_settings_do_not_come_before_the_button(visible_app):
         panel = visible_app.ui[key]
         if panel in position:
             assert position[panel] > actions, f"{key} would starve the buttons"
+
+
+def test_the_default_window_has_room_for_the_log(visible_app):
+    """The log is where a failed conversion explains itself.
+
+    It used to ask for its default 24 lines, be squeezed to the 1px left over,
+    and be invisible until the window was dragged bigger -- which is exactly
+    when someone needs to read it. Checked against requested heights rather
+    than granted ones so a small display cannot make this pass or fail.
+    """
+    app = visible_app
+    order = app.root.pack_slaves()
+    log = app.ui["log_frame"]
+    above = sum(w.winfo_reqheight() for w in order[:order.index(log)])
+
+    assert above + log.winfo_reqheight() <= WINDOW_HEIGHT, (
+        f"{above}px of sections above the log leaves no room for its "
+        f"{log.winfo_reqheight()}px in a {WINDOW_HEIGHT}px window"
+    )
+
+
+def test_the_log_asks_for_a_readable_number_of_lines(app):
+    # Without an explicit height a Text asks for 24 lines, which is what made
+    # the window's requested height meaningless.
+    assert int(app.log_text.cget("height")) == LOG_MIN_LINES

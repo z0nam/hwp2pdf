@@ -390,11 +390,15 @@ ENGINE_STATUS_POLL_MS = 2500
 
 
 WINDOW_WIDTH = 920
-WINDOW_HEIGHT = 710
+#: Room for everything above the log (692px) plus the log's own minimum, so a
+#: conversion's output is readable without resizing the window first.
+WINDOW_HEIGHT = 830
 WINDOW_MIN_WIDTH = 820
 WINDOW_MIN_HEIGHT = 580
 #: Room left for the menu bar and the dock when the window grows.
 WINDOW_SCREEN_MARGIN = 120
+#: Lines of conversion output visible before the user resizes anything.
+LOG_MIN_LINES = 6
 
 
 class ConverterApp:
@@ -779,11 +783,17 @@ class ConverterApp:
         self.progress.pack(fill="x", pady=(6, 0))
 
         log_frame = ttk.Frame(self.root, padding=12)
+        self.ui["log_frame"] = log_frame
         log_frame.pack(fill="both", expand=True)
 
         self.ui["log_label"] = ttk.Label(log_frame)
         self.ui["log_label"].pack(anchor="w")
-        self.log_text = tk.Text(log_frame, wrap="word")
+        # Without a height the Text asks for its default 24 lines, is squeezed
+        # to the 1px left over, and the log is invisible until the window is
+        # dragged bigger -- which is exactly when something has gone wrong and
+        # the log is what explains it. Six lines is a floor, not a cap: the
+        # frame still expands into whatever room the window has.
+        self.log_text = tk.Text(log_frame, wrap="word", height=LOG_MIN_LINES)
         self.log_text.tag_configure("error", foreground="#b00020")
         self.log_text.tag_configure("warning", foreground="#8a5a00")
         self.log_text.pack(side="left", fill="both", expand=True)
