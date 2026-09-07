@@ -12,7 +12,8 @@
   때문에 앞의 설정 블록이 커지면 정작 눌러야 할 버튼이 자리를 못 받았습니다. 이제
   설정보다 먼저 자리를 받으므로 창이 좁아도 굶는 쪽은 로그와 참고 사항이며, 자주 하는
   동작(대상 고르기 → 변환 → 진행 확인)이 위쪽에 모입니다.
-  덕분에 여태 한 번도 표시되지 않던 `참고 사항` 섹션도 보입니다.
+
+## [2026.09.07.1] - 2026-09-07
 
 ### Fixed
 - **자동 업데이트가 실행 중인 변환 서버 때문에 중단되는 문제.** 설치본의 `hwp2pdf-serve.exe`도
@@ -340,7 +341,8 @@
 
 ---
 
-[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.09.04.3...HEAD
+[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.09.07.1...HEAD
+[2026.09.07.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.07.1
 [2026.09.04.3]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.04.3
 [2026.09.04.2]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.04.2
 [2026.09.04.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.04.1
