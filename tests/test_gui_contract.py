@@ -576,12 +576,22 @@ def test_an_urgent_release_we_already_have_does_not_nag(app, monkeypatch):
 
 # -- the window keeping up with its content -------------------------------
 
+ROOMY_SCREEN = 2000
+
+
 @pytest.fixture
-def visible_app(app):
-    """The layout tests need a mapped window: a withdrawn one has no geometry,
-    and "did Tk stop mapping the buttons?" is the whole question here."""
+def visible_app(app, monkeypatch):
+    """A mapped window on a screen with room to grow into.
+
+    Both halves matter. A withdrawn window has no geometry, and the display is
+    an input to the sizing: the CI runners are 768px tall, which caps every
+    request at 648 and leaves nothing to measure. Pinning it keeps these tests
+    about the app rather than about whatever screen they happen to run on.
+    """
+    monkeypatch.setattr(app.root, "winfo_screenheight", lambda: ROOMY_SCREEN)
     app.root.deiconify()
     app.root.update()
+    app._fit_window_to_content()          # re-evaluate against the pinned screen
     yield app
     app.root.withdraw()
 
@@ -642,7 +652,7 @@ def test_growth_stays_on_the_screen(visible_app, monkeypatch):
     """A short screen is not a reason to ask for a window taller than it."""
     app = visible_app
     # Leaves room to grow, but less than the file list wants.
-    screen = WINDOW_HEIGHT + WINDOW_SCREEN_MARGIN + 40
+    screen = WINDOW_HEIGHT + WINDOW_SCREEN_MARGIN + 40   # smaller than the fixture's
     monkeypatch.setattr(app.root, "winfo_screenheight", lambda: screen)
 
     _drop_files(app, 8)
