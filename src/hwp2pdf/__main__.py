@@ -37,9 +37,9 @@ def _keep_tk_from_building_a_console() -> None:
         if os.isatty(0):
             return
         info = os.fstat(0)
-        # "not" rather than "== 0": st_blocks is None where a platform does
-        # not report it, and Tk reads the raw struct where that field is zero.
-        replace = stat.S_ISCHR(info.st_mode) and not info.st_blocks
+        # getattr and "not": st_blocks is None on some platforms and missing
+        # entirely on Windows, while Tk reads the raw struct where it is zero.
+        replace = stat.S_ISCHR(info.st_mode) and not getattr(info, "st_blocks", 0)
     except OSError:
         replace = True          # no usable fd 0 at all, which Tk also consoles for
     if not replace:
