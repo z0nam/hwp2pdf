@@ -6,12 +6,51 @@ open the window with the files selected -- not silently start a headless
 conversion, which is what treating any argument as a CLI invocation would do.
 """
 
+import os
+import stat
 import sys
 from pathlib import Path
 
 from hwp2pdf.app import main as gui_main
 from hwp2pdf.cli import main as cli_main
 from hwp2pdf.constants import enabled_extensions
+
+
+def _keep_tk_from_building_a_console() -> None:
+    """Stop Tk from creating the Tcl console window it never needed.
+
+    Tk builds one when standard input is a zero-block character device, which
+    is exactly what launchd hands a bundled app: the same binary started from a
+    terminal takes a different path and is unaffected. Building that window's
+    menu bar aborts intermittently on macOS -- an NSMenuItem assertion inside
+    tkSetMainMenu, before a single line of this app runs -- and the app dies
+    before its window appears.
+
+    A pipe with its write end already closed reads as empty like /dev/null, but
+    is a FIFO rather than a character device, so the console is never built.
+    Frozen macOS builds only: a terminal or a test runner has a stdin worth
+    keeping.
+    """
+    if sys.platform != "darwin" or not getattr(sys, "frozen", False):
+        return
+    try:
+        if os.isatty(0):
+            return
+        info = os.fstat(0)
+        # "not" rather than "== 0": st_blocks is None where a platform does
+        # not report it, and Tk reads the raw struct where that field is zero.
+        replace = stat.S_ISCHR(info.st_mode) and not info.st_blocks
+    except OSError:
+        replace = True          # no usable fd 0 at all, which Tk also consoles for
+    if not replace:
+        return
+    try:
+        read_fd, write_fd = os.pipe()
+        os.close(write_fd)
+        os.dup2(read_fd, 0)
+        os.close(read_fd)
+    except OSError:
+        pass                    # worst case is the console Tk would have built
 
 
 def looks_like_documents(argv) -> bool:
@@ -28,6 +67,7 @@ def looks_like_documents(argv) -> bool:
 
 
 def main(argv=None) -> int:
+    _keep_tk_from_building_a_console()
     argv = list(sys.argv[1:] if argv is None else argv)
     if not argv:
         gui_main()

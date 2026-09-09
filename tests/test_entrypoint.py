@@ -1,5 +1,8 @@
 """Finder "Open with" must reach the GUI, not the headless converter."""
 
+import os
+import stat
+
 import pytest
 
 pytest.importorskip("tkinter")
@@ -51,3 +54,64 @@ def test_no_arguments_opens_a_plain_gui(monkeypatch):
     monkeypatch.setattr(entry, "gui_main", lambda **kw: seen.update(kw))
     assert entry.main([]) == 0
     assert seen == {}
+
+
+# -- the Tcl console Tk builds when launched from Finder -------------------
+
+def test_a_zero_block_character_device_is_replaced(monkeypatch):
+    """launchd hands a bundled app /dev/null on fd 0, which is what makes Tk
+    build a Tcl console window -- and building that window's menu bar aborts
+    intermittently before any of this app runs."""
+    monkeypatch.setattr(entry.sys, "platform", "darwin")
+    monkeypatch.setattr(entry.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(entry.os, "isatty", lambda _fd: False)
+    monkeypatch.setattr(entry.os, "fstat", lambda _fd: os.stat_result(
+        (stat.S_IFCHR | 0o666, 0, 0, 1, 0, 0, 0, 0, 0, 0), {"st_blocks": 0}
+    ))
+    replaced = []
+    monkeypatch.setattr(entry.os, "pipe", lambda: (7, 8))
+    monkeypatch.setattr(entry.os, "dup2", lambda src, dst: replaced.append((src, dst)))
+    monkeypatch.setattr(entry.os, "close", lambda _fd: None)
+
+    entry._keep_tk_from_building_a_console()
+    assert replaced == [(7, 0)], "stdin was left as the device Tk consoles for"
+
+
+def test_a_real_stdin_is_left_alone(monkeypatch):
+    # A pipe or a file on fd 0 is someone's actual input, not launchd's stub.
+    monkeypatch.setattr(entry.sys, "platform", "darwin")
+    monkeypatch.setattr(entry.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(entry.os, "isatty", lambda _fd: False)
+    monkeypatch.setattr(entry.os, "fstat", lambda _fd: os.stat_result(
+        (stat.S_IFIFO | 0o666, 0, 0, 1, 0, 0, 0, 0, 0, 0), {"st_blocks": 0}
+    ))
+    monkeypatch.setattr(entry.os, "pipe", lambda: pytest.fail("replaced a real stdin"))
+
+    entry._keep_tk_from_building_a_console()
+
+
+def test_a_terminal_keeps_its_stdin(monkeypatch):
+    monkeypatch.setattr(entry.sys, "platform", "darwin")
+    monkeypatch.setattr(entry.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(entry.os, "isatty", lambda _fd: True)
+    monkeypatch.setattr(entry.os, "pipe", lambda: pytest.fail("replaced a tty"))
+
+    entry._keep_tk_from_building_a_console()
+
+
+def test_a_dev_run_is_left_alone(monkeypatch):
+    # Only the frozen bundle has the problem; a test runner's stdin is its own.
+    monkeypatch.setattr(entry.sys, "platform", "darwin")
+    monkeypatch.delattr(entry.sys, "frozen", raising=False)
+    monkeypatch.setattr(entry.os, "pipe", lambda: pytest.fail("touched a dev run"))
+
+    entry._keep_tk_from_building_a_console()
+
+
+@pytest.mark.parametrize("platform", ["win32", "linux"])
+def test_only_macos_needs_this(monkeypatch, platform):
+    monkeypatch.setattr(entry.sys, "platform", platform)
+    monkeypatch.setattr(entry.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(entry.os, "pipe", lambda: pytest.fail(f"touched {platform}"))
+
+    entry._keep_tk_from_building_a_console()
