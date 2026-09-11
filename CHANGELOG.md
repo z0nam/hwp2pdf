@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [2026.09.11.1] - 2026-09-11
+
 ### Fixed
 - **맥 앱이 Finder·Alfred·자동 업데이트로 실행될 때 간헐적으로 죽던 문제.** 창이 뜨기
   전에 사라졌고, 다시 누르면 뜨는 식이었습니다. 실측 크래시율이 절반 안팎이었는데,
@@ -361,7 +363,8 @@
 
 ---
 
-[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.09.07.2...HEAD
+[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.09.11.1...HEAD
+[2026.09.11.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.11.1
 [2026.09.07.2]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.07.2
 [2026.09.07.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.07.1
 [2026.09.04.3]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.04.3
