@@ -102,3 +102,54 @@ per-user 설치 전환. 기존 설치 폴더/upgrade 흐름이 바뀌어 보류.
 `HWPAID_FILE_SAVE_AS_PDF`)뿐인데, 손쉬운 사용 권한이 필요하고 변환 중 화면·키보드를
 점유하며 잠금화면이나 원격 세션에서 실패합니다. 그래서 mac 앱은 로컬 한컴을 쓰지 않고
 Windows 변환 서버에 연결하는 방식을 택했습니다.
+
+## 5. HWPX 출력 — 검토 결과와 선행 확인 (미착수)
+
+동료 제안으로 "hwp를 넣으면 hwpx로" 기능을 검토한 결과. **아직 구현하지 않았고**,
+착수 전에 확인할 것이 하나 남아 있다.
+
+### 왜 이 저장소인가
+
+`hwp-agent`에 이미 `convert`(hwp→hwpx)가 있지만, dogfoot `hwp2hwpx.jar`를 쓰기 때문에
+**머리말 컨트롤 등이 든 일부 hwp에서 IndexOutOfBounds로 실패**한다. 그때 적어둔 우회책이
+"사용자가 한글에서 직접 `.hwpx로 저장`"인데, 그게 정확히 이 기능이 자동화할 일이다.
+hwp2pdf는 진짜 한컴 엔진을 상시로 물고 있는 유일한 경로라, 기능 중복이 아니라
+hwp-agent가 못 넘는 파일의 **믿을 수 있는 우회로**가 된다.
+
+### 선행 확인 — 이게 안 되면 기능이 성립하지 않는다
+
+한컴 COM이 HWPX를 저장 형식으로 받는지 **아직 실측하지 못했다.**
+
+```python
+hwp.SaveAs(r"C:\temp\test.hwpx", "HWPX", "")    # 실패하면 "HWPML2X" 도 시도
+```
+
+studio(mac)에서 SSH로 확인하려 했으나 **비대화형 세션에는 데스크톱이 없어 COM 자체가
+뜨지 않는다** — `pywintypes.com_error: (-2147221021, '작업을 사용할 수 없습니다.')`.
+§2와 같은 뿌리다. **namun-ji 데스크톱 화면 앞에서만 확인된다.**
+
+### 구현 범위는 작다
+
+```python
+# src/hwp2pdf/constants.py
+OUTPUT_FORMATS      = {"PDF": ".pdf", "DOCX": ".docx", "HWPX": ".hwpx"}
+SAVE_FORMAT_ALIASES = {..., "HWPX": ("HWPX", "HWPML2X")}
+```
+
+`save_document_as()`(`backends/windows_com.py`)는 이미 alias를 순회하며 `SaveAs` →
+실패 시 `HParameterSet` 폴백까지 돈다. 프로토콜 검증(`server/http_server.py:274`)과
+capabilities 광고(`:200`)는 `OUTPUT_FORMATS`를 그대로 읽으므로 자동으로 따라온다.
+남는 것은 GUI 체크박스와 CLI 플래그.
+
+### 반드시 같이 고칠 것 — 원본이 날아간다
+
+출력 경로가 `src_path.with_suffix(ext)`다 (`jobs.py:188`, `server/jobs.py:107`).
+**입력이 `.hwpx`이고 출력도 HWPX면 두 경로가 같아져 원본을 덮어쓴다.** PDF·DOCX에는
+없던 조건이라 기존 코드가 대비돼 있지 않다. 이미 hwpx인 입력은 건너뛰거나 별도
+접미사를 붙여야 한다.
+
+### 이미 처리된 것 (다시 손대지 말 것)
+
+rhwp 폴백은 막을 필요가 없다. `RhwpBackend`가 `blocked_reason`과 `convert` 양쪽에서
+`SUPPORTED_FORMATS = ("PDF",)`로 걸러 전용 메시지를 내보낸다
+(`backends/local_rhwp.py:116-126`). 형식을 추가해도 폴백은 알아서 거부한다.

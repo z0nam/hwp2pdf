@@ -6,7 +6,10 @@ Before changing this repository, read these files in order:
 
 1. `docs/context.md`
 2. `docs/ai-context.md`
-3. The relevant sections of `README.md` and `CHANGELOG.md`
+3. `docs/known-issues.md` -- worked-around limits and briefs for unstarted work,
+   including what was already ruled out and why. Read it before proposing a fix
+   for anything that looks broken.
+4. The relevant sections of `README.md` and `CHANGELOG.md`
 
 Treat the code and tests as authoritative when older context disagrees with the current tree.
 
