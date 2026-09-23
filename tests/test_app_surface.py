@@ -28,6 +28,7 @@ def test_check_windows_ps1_import_still_works():
 
     assert output_extension("DOCX") == ".docx"
     assert output_extension("PDF") == ".pdf"
+    assert output_extension("HWPX") == ".hwpx"
 
 
 def test_compat_entrypoint_module_imports():

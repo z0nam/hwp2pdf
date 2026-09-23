@@ -274,6 +274,10 @@ class Handler(BaseHTTPRequestHandler):
             if output_format not in OUTPUT_FORMATS:
                 self._error(HTTPStatus.BAD_REQUEST, "unsupported output format")
                 return
+            name = str(payload.get("name") or match.group(2))
+            if output_format == "HWPX" and Path(name).suffix.lower() == ".hwpx":
+                self._error(HTTPStatus.BAD_REQUEST, "HWPX input is already HWPX")
+                return
             share = payload.get("share") or ""
             if share:
                 try:
@@ -288,7 +292,7 @@ class Handler(BaseHTTPRequestHandler):
 
             item = Item(
                 item_id=match.group(2),
-                name=str(payload.get("name") or match.group(2)),
+                name=name,
                 output_format=output_format,
                 force_one_page=bool(payload.get("force_one_page", True)),
                 share=share,

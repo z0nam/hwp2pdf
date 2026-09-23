@@ -4,6 +4,8 @@ Importable without tkinter or pywin32 so the conversion server and the remote
 client can share them.
 """
 
+from pathlib import Path
+
 from hwp2pdf import paths
 
 from hwp2pdf.version import __version__
@@ -20,12 +22,14 @@ BASE_EXTENSIONS = (".hwp", ".hwpx")
 OUTPUT_FORMATS = {
     "PDF": ".pdf",
     "DOCX": ".docx",
+    "HWPX": ".hwpx",
 }
 
 
 SAVE_FORMAT_ALIASES = {
     "PDF": ("PDF",),
     "DOCX": ("OOXML", "DOCX", "MSWORD"),
+    "HWPX": ("HWPX", "HWPML2X"),
 }
 
 
@@ -74,6 +78,20 @@ def enabled_extensions():
 
 def output_extension(output_format: str):
     return OUTPUT_FORMATS[output_format]
+
+
+def applicable_output_formats(source, output_formats):
+    """Return outputs that cannot overwrite ``source`` itself.
+
+    HWPX is an export target for legacy HWP input. Exporting an HWPX source as
+    HWPX would resolve to the source path and destroy the original document.
+    """
+    source_suffix = Path(source).suffix.lower()
+    return tuple(
+        output_format
+        for output_format in output_formats
+        if not (output_format == "HWPX" and source_suffix == ".hwpx")
+    )
 
 
 APP_TITLE = f"{APP_NAME} v{__version__}"

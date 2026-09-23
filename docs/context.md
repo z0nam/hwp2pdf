@@ -3,7 +3,8 @@
 ## 1. Project Overview
 
 `hwp2pdf` is a desktop converter for documents handled by Hancom Office Hangul.
-On Windows it automates `HWPFrame.HwpObject` through COM and saves HWP/HWPX files as PDF or DOCX.
+On Windows it automates `HWPFrame.HwpObject` through COM and saves HWP/HWPX files as PDF or DOCX,
+and legacy HWP files as HWPX.
 On macOS the same GUI runs against a Windows conversion server, because Hancom Office for Mac
 exposes neither an AppleScript dictionary nor a command-line conversion entry point.
 
@@ -13,6 +14,7 @@ Primary scope:
 - HWPX -> PDF
 - HWP -> DOCX
 - HWPX -> DOCX
+- HWP -> HWPX
 - Folder batch conversion through a Tkinter GUI
 
 DOCX output depends on Hancom Office's DOCX export fidelity.
@@ -70,7 +72,7 @@ The wire contract is documented in [protocol.md](protocol.md); setup instruction
 
 - Select a root folder from the GUI or use the `hwp2pdf` CLI command
 - Convert `.hwp` and `.hwpx`
-- Select PDF output, DOCX output, or both
+- Select any combination of PDF, DOCX, and HWPX outputs; HWPX applies to HWP input only
 - Korean UI/logs by default with an English switch
 - Automatic daily update check through GitHub Releases, with a mild status label and an
   upgrade button only when a newer release exists
@@ -102,7 +104,7 @@ The wire contract is documented in [protocol.md](protocol.md); setup instruction
 CLI usage is exposed through the `hwp2pdf` console script and the packaged
 `hwp2pdf-cli-YYYY.MM.DD.N.exe` / installed `hwp2pdf-cli.exe`. `python -m hwp2pdf`
 starts the GUI when no arguments are provided and runs the CLI when arguments are present.
-The CLI reuses the GUI conversion worker and supports `--pdf`, `--docx`, `--recursive`,
+The CLI reuses the GUI conversion worker and supports `--pdf`, `--docx`, `--hwpx`, `--recursive`,
 `--no-overwrite`, `--no-safe-temp`, `--no-force-one-page`, `--kill-hwp`, and
 `--allow-running-hwp`.
 - Colored on-screen logs for failures and warning states

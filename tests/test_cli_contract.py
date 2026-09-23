@@ -32,3 +32,5 @@ def test_parser_defaults_to_pdf():
     args = build_parser().parse_args(["target"])
     assert selected_formats(args) == ("PDF",)
     assert selected_formats(build_parser().parse_args(["t", "--docx"])) == ("DOCX",)
+    assert selected_formats(build_parser().parse_args(["t", "--hwpx"])) == ("HWPX",)
+    assert selected_formats(build_parser().parse_args(["t", "--pdf", "--hwpx"])) == ("PDF", "HWPX")

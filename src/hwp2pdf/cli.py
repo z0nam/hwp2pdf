@@ -65,6 +65,7 @@ def build_parser():
     parser.add_argument("target", help="HWP/HWPX file or folder to convert")
     parser.add_argument("--pdf", action="store_true", help="Export PDF")
     parser.add_argument("--docx", action="store_true", help="Export DOCX")
+    parser.add_argument("--hwpx", action="store_true", help="Export HWP input as HWPX")
     parser.add_argument("-r", "--recursive", action="store_true", help="Include subfolders when target is a folder")
     parser.add_argument("--no-overwrite", action="store_true", help="Skip outputs that already exist")
     parser.add_argument("--no-safe-temp", action="store_true", help="Do not copy files through the safe local temp folder")
@@ -191,6 +192,8 @@ def selected_formats(args):
         formats.append("PDF")
     if args.docx:
         formats.append("DOCX")
+    if args.hwpx:
+        formats.append("HWPX")
     return tuple(formats or ("PDF",))
 
 

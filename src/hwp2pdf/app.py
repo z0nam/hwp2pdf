@@ -93,6 +93,7 @@ from hwp2pdf.constants import (  # noqa: F401
     OUTPUT_FORMATS,
     SAVE_FORMAT_ALIASES,
     TEMP_WORKDIR,
+    applicable_output_formats,
     output_extension,
 )
 from hwp2pdf.i18n import PRINT_METHOD_LABELS, TEXT, print_method_label  # noqa: F401
@@ -429,6 +430,10 @@ class ConverterApp:
         self.job_timeout_minutes_var = tk.StringVar(value=str(saved["job_timeout_minutes"]))
         self.output_pdf_var = tk.BooleanVar(value="PDF" in saved["formats"])
         self.output_docx_var = tk.BooleanVar(value="DOCX" in saved["formats"])
+        self.output_hwpx_var = tk.BooleanVar(value="HWPX" in saved["formats"])
+        self.hwpx_output_preference = self.output_hwpx_var.get()
+        self._updating_hwpx_for_target = False
+        self.hwpx_output_check = None
         self.language_var = tk.StringVar(
             value=LANGUAGE_LABELS.get(self.settings.get("language"), LANGUAGE_LABELS["ko"])
         )
@@ -489,6 +494,10 @@ class ConverterApp:
             self.use_remote_var,
         ):
             var.trace_add("write", self._schedule_save_settings)
+        self.output_hwpx_var.trace_add("write", self._on_hwpx_output_changed)
+        for var in (self.output_pdf_var, self.output_docx_var, self.output_hwpx_var):
+            var.trace_add("write", self._on_output_selection_changed)
+        self._update_hwpx_output_availability()
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self._apply_cached_update_state()
         self._poll_log_queue()
@@ -622,6 +631,10 @@ class ConverterApp:
         self.ui["output_label"].pack(side="left", padx=(0, 8))
         ttk.Checkbutton(output_frame, text="PDF", variable=self.output_pdf_var).pack(side="left")
         ttk.Checkbutton(output_frame, text="DOCX", variable=self.output_docx_var).pack(side="left", padx=(8, 0))
+        self.hwpx_output_check = ttk.Checkbutton(
+            output_frame, text="HWPX", variable=self.output_hwpx_var
+        )
+        self.hwpx_output_check.pack(side="left", padx=(8, 0))
         self.ui["safe_temp_check"] = ttk.Checkbutton(
             opts,
             variable=self.use_safe_copy_var,
@@ -1057,7 +1070,38 @@ class ConverterApp:
             self.recursive_check.state(["!disabled"])
             if target and os.path.isdir(target):
                 self._set_recursive_for_target(self.folder_recursive_preference)
+        self._update_hwpx_output_availability()
         self._update_file_count_estimate()
+
+    def _on_hwpx_output_changed(self, *_args):
+        if self._updating_hwpx_for_target:
+            return
+        self.hwpx_output_preference = self.output_hwpx_var.get()
+        self._schedule_save_settings()
+
+    def _on_output_selection_changed(self, *_args):
+        self._update_file_count_estimate()
+
+    def _update_hwpx_output_availability(self):
+        if self.hwpx_output_check is None:
+            return
+
+        target = self.folder_var.get().strip()
+        if self.selected_files:
+            only_hwpx_inputs = all(path.suffix.lower() == ".hwpx" for path in self.selected_files)
+        else:
+            only_hwpx_inputs = bool(target and os.path.isfile(target) and Path(target).suffix.lower() == ".hwpx")
+
+        self._updating_hwpx_for_target = True
+        try:
+            if only_hwpx_inputs:
+                self.output_hwpx_var.set(False)
+                self.hwpx_output_check.state(["disabled"])
+            else:
+                self.hwpx_output_check.state(["!disabled"])
+                self.output_hwpx_var.set(self.hwpx_output_preference)
+        finally:
+            self._updating_hwpx_for_target = False
 
     def _on_recursive_option_changed(self, *_args):
         if self._updating_recursive_for_target:
@@ -1083,8 +1127,13 @@ class ConverterApp:
             return
 
         if self.selected_files:
+            formats = self.selected_output_formats()
+            count = sum(
+                bool(applicable_output_formats(path, formats))
+                for path in self.selected_files
+            )
             self.file_count_var.set(
-                self.tr("file_count_estimate", count=len(self.selected_files))
+                self.tr("file_count_estimate", count=count)
             )
             return
 
@@ -1095,9 +1144,17 @@ class ConverterApp:
 
         try:
             if os.path.isfile(target):
-                count = 1 if Path(target).suffix.lower() in enabled_extensions() else 0
+                path = Path(target)
+                count = int(
+                    path.suffix.lower() in enabled_extensions()
+                    and bool(applicable_output_formats(path, self.selected_output_formats()))
+                )
             elif os.path.isdir(target):
-                count = len(self.collect_files(target, self.recursive_var.get()))
+                formats = self.selected_output_formats()
+                count = sum(
+                    bool(applicable_output_formats(path, formats))
+                    for path in self.collect_files(target, self.recursive_var.get())
+                )
             else:
                 self.file_count_var.set("")
                 return
@@ -1338,6 +1395,8 @@ class ConverterApp:
             formats.append("PDF")
         if self.output_docx_var.get():
             formats.append("DOCX")
+        if self.hwpx_output_preference:
+            formats.append("HWPX")
 
         self.settings["language"] = self.lang()
         self.settings["last_target"] = self.folder_var.get().strip()
@@ -2303,6 +2362,8 @@ class ConverterApp:
             formats.append("PDF")
         if self.output_docx_var.get():
             formats.append("DOCX")
+        if self.output_hwpx_var.get():
+            formats.append("HWPX")
         return tuple(formats)
 
     collect_files = staticmethod(collect_files)

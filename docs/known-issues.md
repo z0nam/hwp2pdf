@@ -103,10 +103,9 @@ per-user 설치 전환. 기존 설치 폴더/upgrade 흐름이 바뀌어 보류.
 점유하며 잠금화면이나 원격 세션에서 실패합니다. 그래서 mac 앱은 로컬 한컴을 쓰지 않고
 Windows 변환 서버에 연결하는 방식을 택했습니다.
 
-## 5. HWPX 출력 — 검토 결과와 선행 확인 (미착수)
+## 5. HWPX 출력 — 2026-09-23 구현 완료
 
-동료 제안으로 "hwp를 넣으면 hwpx로" 기능을 검토한 결과. **아직 구현하지 않았고**,
-착수 전에 확인할 것이 하나 남아 있다.
+동료 제안으로 "hwp를 넣으면 hwpx로" 기능을 검토하고 구현했다.
 
 ### 왜 이 저장소인가
 
@@ -116,19 +115,19 @@ Windows 변환 서버에 연결하는 방식을 택했습니다.
 hwp2pdf는 진짜 한컴 엔진을 상시로 물고 있는 유일한 경로라, 기능 중복이 아니라
 hwp-agent가 못 넘는 파일의 **믿을 수 있는 우회로**가 된다.
 
-### 선행 확인 — 이게 안 되면 기능이 성립하지 않는다
+### 한컴 COM 실측 결과
 
-한컴 COM이 HWPX를 저장 형식으로 받는지 **아직 실측하지 못했다.**
+Windows 데스크톱 세션의 한컴오피스 2022에서 보안 모듈 등록 후 실측했다.
 
 ```python
-hwp.SaveAs(r"C:\temp\test.hwpx", "HWPX", "")    # 실패하면 "HWPML2X" 도 시도
+hwp.SaveAs(r"C:\temp\test.hwpx", "HWPX", "")
 ```
 
-studio(mac)에서 SSH로 확인하려 했으나 **비대화형 세션에는 데스크톱이 없어 COM 자체가
-뜨지 않는다** — `pywintypes.com_error: (-2147221021, '작업을 사용할 수 없습니다.')`.
-§2와 같은 뿌리다. **namun-ji 데스크톱 화면 앞에서만 확인된다.**
+호출은 `True`를 반환했고 결과는 `mimetype`, `version.xml`, `Contents/header.xml`,
+`Contents/section0.xml`, `Contents/content.hpf`를 갖춘 정상 HWPX ZIP 컨테이너였다.
+기본 별칭 `HWPX`가 성공했으며 호환 폴백으로 `HWPML2X`도 유지한다.
 
-### 구현 범위는 작다
+### 구현 범위
 
 ```python
 # src/hwp2pdf/constants.py
@@ -139,14 +138,15 @@ SAVE_FORMAT_ALIASES = {..., "HWPX": ("HWPX", "HWPML2X")}
 `save_document_as()`(`backends/windows_com.py`)는 이미 alias를 순회하며 `SaveAs` →
 실패 시 `HParameterSet` 폴백까지 돈다. 프로토콜 검증(`server/http_server.py:274`)과
 capabilities 광고(`:200`)는 `OUTPUT_FORMATS`를 그대로 읽으므로 자동으로 따라온다.
-남는 것은 GUI 체크박스와 CLI 플래그.
+GUI 체크박스, CLI `--hwpx`, 설정 저장, 원격 서버 capability/검증까지 같은 형식 정의를
+공유한다.
 
-### 반드시 같이 고칠 것 — 원본이 날아간다
+### 원본 보호
 
 출력 경로가 `src_path.with_suffix(ext)`다 (`jobs.py:188`, `server/jobs.py:107`).
-**입력이 `.hwpx`이고 출력도 HWPX면 두 경로가 같아져 원본을 덮어쓴다.** PDF·DOCX에는
-없던 조건이라 기존 코드가 대비돼 있지 않다. 이미 hwpx인 입력은 건너뛰거나 별도
-접미사를 붙여야 한다.
+**입력이 `.hwpx`이고 출력도 HWPX면 두 경로가 같아져 원본을 덮어쓴다.** 작업 계획에서
+이 조합을 제외하고 서버의 직접 API 요청도 거부한다. GUI에서 HWPX 파일만 직접 선택하면
+HWPX 체크박스를 비활성화하며, 폴더·혼합 입력의 진행률은 실제 적용 작업만 센다.
 
 ### 이미 처리된 것 (다시 손대지 말 것)
 

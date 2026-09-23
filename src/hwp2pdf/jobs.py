@@ -12,7 +12,7 @@ from pathlib import Path
 
 from hwp2pdf import paths
 from hwp2pdf.backends.base import BackendUnavailable, JobSpec, SessionOptions
-from hwp2pdf.constants import enabled_extensions, output_extension
+from hwp2pdf.constants import applicable_output_formats, enabled_extensions, output_extension
 from hwp2pdf.i18n import translate
 
 LOG_CSV_NAME = "hwp2pdf_log.csv"
@@ -80,11 +80,24 @@ def run_batch(
         sink.put(("log", translate(lang, "scanning")))
         files = file_collector(target, recursive)
         total_files = len(files)
-        total_jobs = total_files * len(output_formats)
+        jobs_by_file = [
+            (src_path, applicable_output_formats(src_path, output_formats))
+            for src_path in files
+        ]
+        total_jobs = sum(len(formats) for _src_path, formats in jobs_by_file)
         extension_label = ", ".join(ext.upper() for ext in enabled_extensions())
         if total_files == 0:
             sink.put(("error", translate(lang, "no_files", extensions=extension_label)))
             return
+        if total_jobs == 0:
+            sink.put(("error", translate(lang, "no_applicable_outputs")))
+            return
+
+        effective_output_formats = tuple(
+            output_format
+            for output_format in output_formats
+            if any(output_format in formats for _src_path, formats in jobs_by_file)
+        )
 
         if isinstance(target, (tuple, list)):
             # An explicit file selection can span folders; log next to the first.
@@ -112,7 +125,7 @@ def run_batch(
 
         session_options = SessionOptions(
             lang=lang,
-            output_formats=tuple(output_formats),
+            output_formats=effective_output_formats,
             force_one_page=force_one_page,
             safe_temp=use_safe_copy,
             total_files=total_files,
@@ -146,7 +159,7 @@ def run_batch(
             sink.put(
                 ("log", translate(lang, "force_one_page_mode", state=on_label if force_one_page else off_label))
             )
-            sink.put(("log", translate(lang, "output_formats", formats=", ".join(output_formats))))
+            sink.put(("log", translate(lang, "output_formats", formats=", ".join(effective_output_formats))))
             sink.put(("log", translate(lang, "auto_confirm_docx")))
             for note in backend.session_notes(lang):
                 sink.put(note)
@@ -164,8 +177,10 @@ def run_batch(
                 f.flush()
 
                 job_index = 0
-                for file_index, src_path in enumerate(files, start=1):
+                for file_index, (src_path, file_output_formats) in enumerate(jobs_by_file, start=1):
                     src_path = Path(src_path)
+                    if not file_output_formats:
+                        continue
                     # A selected source leaves the GUI list only if every requested
                     # output was actually converted. Skipped and failed files stay
                     # visible so the user can deliberately retry them.
@@ -174,7 +189,7 @@ def run_batch(
 
                     sink.put(("log", translate(lang, "processing", path=src_path)))
 
-                    for output_format in output_formats:
+                    for output_format in file_output_formats:
                         if is_stopped():
                             signal_cancel()
                             writer.writerow(["STOPPED", "", "", translate(lang, "stopped_csv")])
@@ -386,7 +401,7 @@ def run_batch(
 
                     if (
                         file_succeeded
-                        and completed_formats == len(output_formats)
+                        and completed_formats == len(file_output_formats)
                         and not stopped
                     ):
                         sink.put(("file_completed", str(src_path)))

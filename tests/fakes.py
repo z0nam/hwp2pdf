@@ -4,6 +4,7 @@ from hwp2pdf.backends.base import BackendCapabilities, BackendUnavailable, JobRe
 
 PDF_STUB = b"%PDF-1.4 fake\n"
 DOCX_STUB = b"PK\x03\x04 fake\n"
+HWPX_STUB = b"PK\x03\x04 fake hwpx\n"
 
 
 class RecordingSink:
@@ -81,7 +82,11 @@ class FakeBackend:
             self.on_convert(job)
         if job.src_path.name in self.fail_on:
             return JobResult(ok=False, message=f"fake failure: {job.src_path.name}")
-        stub = PDF_STUB if job.output_format == "PDF" else DOCX_STUB
+        stub = {
+            "PDF": PDF_STUB,
+            "DOCX": DOCX_STUB,
+            "HWPX": HWPX_STUB,
+        }[job.output_format]
         job.save_path.parent.mkdir(parents=True, exist_ok=True)
         job.save_path.write_bytes(stub)
         return JobResult(ok=True, actual_format=job.output_format)

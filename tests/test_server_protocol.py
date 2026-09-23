@@ -12,7 +12,7 @@ import urllib.request
 
 import pytest
 
-from fakes import DOCX_STUB, PDF_STUB, FakeBackend, RecordingSink
+from fakes import DOCX_STUB, HWPX_STUB, PDF_STUB, FakeBackend, RecordingSink
 
 from hwp2pdf import jobs
 from hwp2pdf.backends.base import BackendUnavailable
@@ -116,7 +116,7 @@ def test_capabilities_requires_a_token(server):
     status, payload = get(server, protocol.PATH_CAPABILITIES)
     assert status == 200
     assert payload["hwp_installed"] is True
-    assert "PDF" in payload["formats"] and "DOCX" in payload["formats"]
+    assert {"PDF", "DOCX", "HWPX"} <= set(payload["formats"])
 
 
 def test_unknown_job_is_404(server):
@@ -146,6 +146,17 @@ def test_both_formats_round_trip(tmp_path, server):
 
     assert (tmp_path / "a.pdf").read_bytes() == PDF_STUB
     assert (tmp_path / "a.docx").read_bytes() == DOCX_STUB
+
+
+def test_hwpx_round_trip_converts_hwp_without_touching_hwpx_input(tmp_path, server):
+    make_files(tmp_path, "legacy.hwp", "modern.hwpx")
+    original = (tmp_path / "modern.hwpx").read_bytes()
+
+    sink = run_remote(tmp_path, server, output_formats=("HWPX",))
+
+    assert (tmp_path / "legacy.hwpx").read_bytes() == HWPX_STUB
+    assert (tmp_path / "modern.hwpx").read_bytes() == original
+    assert sink.done()[:3] == (1, 0, 0)
 
 
 def test_server_log_lines_reach_the_client(tmp_path, server):
@@ -295,6 +306,26 @@ def test_unsupported_output_format_is_rejected(server):
         with pytest.raises(urllib.error.HTTPError) as excinfo:
             urllib.request.urlopen(request, timeout=10)
         assert excinfo.value.code == 400
+    finally:
+        backend.close_session()
+
+
+def test_server_rejects_hwpx_output_for_an_hwpx_source(server):
+    backend = client(server)
+    backend.preflight("ko")
+    backend.open_session(RecordingSink(), "ko", None)
+    try:
+        request = urllib.request.Request(
+            server.url + protocol.run_path(backend.job_id, "00001-HWPX"),
+            data=json.dumps({"name": "already.hwpx", "output_format": "HWPX"}).encode("utf-8"),
+            method="POST",
+        )
+        request.add_header(protocol.AUTH_HEADER, f"{protocol.AUTH_SCHEME} {TOKEN}")
+        request.add_header("Content-Type", "application/json")
+        with pytest.raises(urllib.error.HTTPError) as excinfo:
+            urllib.request.urlopen(request, timeout=10)
+        assert excinfo.value.code == 400
+        assert "already HWPX" in excinfo.value.read().decode("utf-8")
     finally:
         backend.close_session()
 

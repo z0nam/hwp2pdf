@@ -110,6 +110,43 @@ def test_total_jobs_is_files_times_formats(tmp_path):
     assert totals == {4}
 
 
+def test_hwpx_output_applies_only_to_hwp_inputs(tmp_path):
+    make_files(tmp_path, "legacy.hwp", "modern.hwpx")
+    original_hwpx = (tmp_path / "modern.hwpx").read_bytes()
+
+    sink, backend = run(tmp_path, output_formats=("HWPX",))
+
+    assert backend.converted == [("legacy.hwp", "HWPX")]
+    assert (tmp_path / "legacy.hwpx").exists()
+    assert (tmp_path / "modern.hwpx").read_bytes() == original_hwpx
+    assert sink.done()[:3] == (1, 0, 0)
+    assert sink.of_kind("file_completed") == [str(tmp_path / "legacy.hwp")]
+
+
+def test_hwpx_self_export_is_excluded_from_progress_total(tmp_path):
+    make_files(tmp_path, "legacy.hwp", "modern.hwpx")
+
+    sink, backend = run(tmp_path, output_formats=("PDF", "HWPX"))
+
+    assert backend.converted == [
+        ("legacy.hwp", "PDF"),
+        ("legacy.hwp", "HWPX"),
+        ("modern.hwpx", "PDF"),
+    ]
+    totals = {total for _current, total, _label in sink.of_kind("progress")}
+    assert totals == {3}
+
+
+def test_hwpx_only_input_with_hwpx_only_output_stops_before_opening_backend(tmp_path):
+    make_files(tmp_path, "modern.hwpx")
+
+    sink, backend = run(tmp_path, output_formats=("HWPX",))
+
+    assert sink.of_kind("error") == [translate("ko", "no_applicable_outputs")]
+    assert backend.sessions_opened == 0
+    assert (tmp_path / "modern.hwpx").read_bytes() == b"fake hwp"
+
+
 def test_progress_events_run_from_zero_to_total(tmp_path):
     make_files(tmp_path, "a.hwp", "b.hwp")
     sink, _ = run(tmp_path)

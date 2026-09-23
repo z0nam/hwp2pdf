@@ -92,13 +92,44 @@ def test_backend_settings_is_a_plain_dict_safe_to_hand_to_a_worker(app):
 def test_settings_round_trip_through_the_config_file(app, tmp_path):
     app.server_url_var.set("http://saved:8765")
     app.output_docx_var.set(True)
+    app.output_hwpx_var.set(True)
     app.language_var.set("English")
     app._save_settings()
 
     saved = config.load(tmp_path / "settings.json")
     assert saved["server"]["url"] == "http://saved:8765"
     assert saved["language"] == "en"
-    assert saved["options"]["formats"] == ["PDF", "DOCX"]
+    assert saved["options"]["formats"] == ["PDF", "DOCX", "HWPX"]
+
+
+def test_hwpx_output_is_disabled_for_hwpx_only_file_targets_and_restored(app, tmp_path):
+    source_hwpx = tmp_path / "source.hwpx"
+    source_hwp = tmp_path / "source.hwp"
+    source_hwpx.write_bytes(b"hwpx")
+    source_hwp.write_bytes(b"hwp")
+
+    app.output_hwpx_var.set(True)
+    app._set_file_targets([source_hwpx], append=False)
+    assert app.output_hwpx_var.get() is False
+    assert app.hwpx_output_check.instate(["disabled"])
+
+    app._set_file_targets([source_hwp], append=False)
+    assert app.output_hwpx_var.get() is True
+    assert app.hwpx_output_check.instate(["!disabled"])
+
+
+def test_hwpx_only_estimate_counts_hwp_inputs_in_a_mixed_selection(app, tmp_path):
+    source_hwpx = tmp_path / "source.hwpx"
+    source_hwp = tmp_path / "source.hwp"
+    source_hwpx.write_bytes(b"hwpx")
+    source_hwp.write_bytes(b"hwp")
+
+    app.output_pdf_var.set(False)
+    app.output_docx_var.set(False)
+    app.output_hwpx_var.set(True)
+    app._set_file_targets([source_hwp, source_hwpx], append=False)
+
+    assert app.file_count_var.get() == app.tr("file_count_estimate", count=1)
 
 
 def test_connection_test_without_an_address_reports_instead_of_hanging(app):
