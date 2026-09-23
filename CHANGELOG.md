@@ -6,6 +6,8 @@
 
 ## [Unreleased]
 
+## [2026.09.23.1] - 2026-09-23
+
 ### Added
 - **HWP를 HWPX로 변환할 수 있습니다.** 기존 출력 형식 줄에 `HWPX` 체크박스를 추가했고,
   CLI에서는 `--hwpx`를 사용할 수 있습니다. 로컬 Windows 한글 엔진과 Windows 변환 서버
@@ -373,7 +375,8 @@
 
 ---
 
-[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.09.11.1...HEAD
+[Unreleased]: https://github.com/z0nam/hwp2pdf/compare/v2026.09.23.1...HEAD
+[2026.09.23.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.23.1
 [2026.09.11.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.11.1
 [2026.09.07.2]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.07.2
 [2026.09.07.1]: https://github.com/z0nam/hwp2pdf/releases/tag/v2026.09.07.1
