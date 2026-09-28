@@ -335,6 +335,14 @@ Use `scripts/install_serve_task.ps1` for logon autostart. Details in
 
 ## 소스에서 실행 / Run From Source
 
+Windows 설치 프로그램에서는 `명령줄에서 hwp2pdf-cli 사용(PATH에 추가)`이 기본으로
+선택됩니다. 설치 후 **새 터미널**을 열면 `hwp2pdf-cli --version`처럼 전체 경로 없이
+실행할 수 있습니다. 기존에 열려 있던 터미널은 환경변수 변경을 반영하지 않습니다.
+
+The Windows installer selects `Use hwp2pdf-cli from the command line (add to PATH)` by default.
+Open a **new terminal** after installation to run commands such as `hwp2pdf-cli --version`
+without the full path. Terminals that were already open do not inherit the updated environment.
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -e .
