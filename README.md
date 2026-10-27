@@ -291,6 +291,8 @@ Main options:
 - `--allow-running-hwp`: 아래한글이 이미 실행 중이어도 그대로 진행
 - `--server`: Windows 변환 서버 주소 (예: `http://host:17650`). macOS에서는 필수
 - `--token`: 변환 서버 토큰
+- `--local`: 저장된 서버 설정이나 `HWP2PDF_SERVER_URL`이 있어도 이 PC의 한컴오피스로 변환
+  (환경변수 `HWP2PDF_LOCAL=1`도 같음). hwp-agent처럼 이 CLI를 로컬 엔진으로 부르는 도구용
 - `--transport`: `auto` / `upload` / `share`
 - `--rhwp-fallback`: 로컬 한컴오피스 또는 변환 서버를 시작할 수 없으면
   [rhwp](https://github.com/edwardkim/rhwp)로 PDF 생성(근사 품질, PDF만).

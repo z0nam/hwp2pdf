@@ -6,6 +6,11 @@
 
 ## [Unreleased]
 
+### Added
+- **CLI `--local` / `HWP2PDF_LOCAL=1`** — 저장된 서버 설정이나 `HWP2PDF_SERVER_URL`을 무시하고
+  이 PC의 한컴오피스로 변환합니다. hwp-agent가 `hwp2pdf-cli`를 로컬 렌더 엔진으로 부를 때
+  원격으로 새지 않게 하려는 것입니다. 이전 버전은 이 환경변수를 무시하므로 호출 쪽 호환에 문제가 없습니다.
+
 ## [2026.09.28.1] - 2026-09-28
 
 ### Added

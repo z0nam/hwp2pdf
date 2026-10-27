@@ -24,6 +24,8 @@ TRANSPORTS = (TRANSPORT_AUTO, TRANSPORT_UPLOAD, TRANSPORT_SHARE)
 
 ENV_SERVER_URL = "HWP2PDF_SERVER_URL"
 ENV_SERVER_TOKEN = "HWP2PDF_TOKEN"
+#: set to 1 to convert with this PC's Hancom even when a server is saved / in env
+ENV_LOCAL = "HWP2PDF_LOCAL"
 
 DEFAULTS = {
     "version": SCHEMA_VERSION,

@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -88,6 +89,12 @@ def build_parser():
         "--token", default="", help="Bearer token for --server (or $HWP2PDF_TOKEN)"
     )
     parser.add_argument(
+        "--local",
+        action="store_true",
+        help="Convert with this PC's Hancom Office even if a server is saved or set in "
+             "$HWP2PDF_SERVER_URL (also $HWP2PDF_LOCAL=1). Ignores --server.",
+    )
+    parser.add_argument(
         "--rhwp-fallback",
         action="store_true",
         help="If local Hancom Office or the conversion server cannot start, render "
@@ -114,8 +121,15 @@ def build_parser():
 
 
 def resolve_backend_settings(args):
-    """Command line wins over saved settings, which win over defaults."""
+    """Command line wins over saved settings, which win over defaults.
+
+    ``--local`` / ``$HWP2PDF_LOCAL=1`` clears the server URL so callers that drive
+    this CLI as the *local* engine (e.g. hwp-agent) never end up converting remotely.
+    """
     settings = config.server_settings()
+    if getattr(args, "local", False) or os.environ.get(config.ENV_LOCAL, "") not in ("", "0"):
+        settings["url"] = ""
+        return settings
     if args.server:
         # An invite carries a token as well, so it is unpacked before --token
         # is applied and can still be overridden by it.
