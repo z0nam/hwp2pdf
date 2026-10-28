@@ -694,6 +694,17 @@ class WindowsComBackend:
         """Bring up an HwpObject and everything that hangs off it."""
         import win32com.client
 
+        # A first-run consent window would hang this unseen Hangul: answer "decline"
+        # where this account has no answer yet (never "agree", never overwrite).
+        try:
+            from hwp2pdf.hancom_options import decline_usability_consent, option_info_path
+
+            if decline_usability_consent() in ("created", "added"):
+                sink.put(("log", translate(lang, "usability_consent_declined",
+                                           path=option_info_path())))
+        except Exception:
+            pass
+
         sink.put(("log", translate(lang, "start_hwp")))
         self.hwp = win32com.client.Dispatch("HWPFrame.HwpObject")
         sink.put(("log", translate(lang, "hwp_started")))
