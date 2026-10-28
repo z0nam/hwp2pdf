@@ -15,7 +15,9 @@ answer exists yet** — never ``1``, and an existing answer is never changed.
 
 from __future__ import annotations
 
+import io
 import os
+import shutil
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -47,7 +49,8 @@ def decline_usability_consent(path: Path | None = None) -> str:
     """Record "동의 안 함" where Hangul has no answer yet. Returns what happened:
 
     ``created`` (no options file: wrote one holding just the two answers),
-    ``added`` (file existed without them: added the missing ones as 0),
+    ``added`` (file existed without them: added the missing ones as 0; the original
+    is kept once as ``optionInfo.xml.bak``),
     ``kept`` (an answer is already there — left as the user chose),
     ``skipped`` (no %APPDATA%, or a file we cannot parse: left untouched).
     """
@@ -58,7 +61,7 @@ def decline_usability_consent(path: Path | None = None) -> str:
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         # Hangul writes this file as UTF-8 with a BOM
-        path.write_text(_MINIMAL, encoding="utf-8-sig")
+        _atomic_write(path, _MINIMAL.encode("utf-8-sig"))
         return "created"
     try:
         tree = ET.parse(path)
@@ -77,7 +80,22 @@ def decline_usability_consent(path: Path | None = None) -> str:
     for key in missing:
         ET.SubElement(options, key, value=DECLINED)
     ET.indent(tree, space="  ")
-    with path.open("wb") as fh:
-        fh.write(b"\xef\xbb\xbf")
-        tree.write(fh, encoding="utf-8", xml_declaration=True)
+    buf = io.BytesIO()
+    buf.write(b"\xef\xbb\xbf")
+    tree.write(buf, encoding="utf-8", xml_declaration=True)
+    # the file holds the user's other Hancom options too: keep the original once,
+    # and swap the new one in atomically so a failed write cannot truncate it
+    backup = path.with_name(path.name + ".bak")
+    if not backup.exists():
+        shutil.copy2(path, backup)
+    _atomic_write(path, buf.getvalue())
     return "added"
+
+
+def _atomic_write(path: Path, data: bytes) -> None:
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)

@@ -55,6 +55,28 @@ def test_missing_answer_added_as_decline_keeping_other_options(tmp_path):
     assert _values(path) == {"MakeDumpFile": "1", "EnableUsabilityLog": "0",
                              "EnableUsabilityLogSending": "0"}
     assert path.read_bytes().startswith(b"\xef\xbb\xbf")
+    assert b"EnableUsabilityLog" not in (tmp_path / "optionInfo.xml.bak").read_bytes()
+    assert not (tmp_path / "optionInfo.xml.tmp").exists()
+
+
+def test_failed_write_leaves_the_original_intact(tmp_path, monkeypatch):
+    import os
+
+    path = tmp_path / "optionInfo.xml"
+    original = AGREED.replace('      <EnableUsabilityLog value="1" />\n', "")
+    path.write_text(original, encoding="utf-8-sig")
+    before = path.read_bytes()
+
+    def boom(*_a, **_k):
+        raise OSError("locked")
+
+    monkeypatch.setattr(os, "replace", boom)
+    try:
+        decline_usability_consent(path)
+    except OSError:
+        pass
+    assert path.read_bytes() == before
+    assert not (tmp_path / "optionInfo.xml.tmp").exists()
 
 
 def test_partial_answer_only_fills_the_gap(tmp_path):
