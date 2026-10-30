@@ -1,4 +1,4 @@
-"""First-run usability-data consent: pre-answer "decline" only where no answer exists."""
+"""First-run usability-data consent: write "decline" only where Hangul has no options file yet."""
 
 from pathlib import Path
 
@@ -31,11 +31,26 @@ def test_path_is_per_user_under_appdata(monkeypatch, tmp_path):
     assert option_info_path() is None and decline_usability_consent() == "skipped"
 
 
-def test_fresh_account_gets_declined_answer(tmp_path):
+# jaix-win 이 한컴 2022 에서 창을 막는 것을 확인한 파일 그대로(UTF-8 BOM, 209바이트, 2026-10-30)
+MEASURED = b"\xef\xbb\xbf" + b"\r\n".join([
+    b'<?xml version="1.0" encoding="utf-8"?>',
+    b"<root>",
+    b"  <Common>",
+    b"    <OptionInfo>",
+    b'      <EnableUsabilityLog value="0" />',
+    b'      <EnableUsabilityLogSending value="0" />',
+    b"    </OptionInfo>",
+    b"  </Common>",
+    b"</root>",
+]) + b"\r\n"
+
+
+def test_fresh_account_gets_the_measured_minimal_file(tmp_path):
     path = tmp_path / "Common" / "120" / "optionInfo.xml"
     assert decline_usability_consent(path) == "created"
-    assert path.read_bytes().startswith(b"\xef\xbb\xbf")  # UTF-8 BOM, as Hangul writes it
+    assert path.read_bytes() == MEASURED and len(MEASURED) == 209
     assert _values(path) == {"EnableUsabilityLog": "0", "EnableUsabilityLogSending": "0"}
+    assert not path.with_name("optionInfo.xml.tmp").exists()
 
 
 def test_existing_answer_is_never_changed(tmp_path):
@@ -46,26 +61,22 @@ def test_existing_answer_is_never_changed(tmp_path):
     assert path.read_bytes() == before
 
 
-def test_missing_answer_added_as_decline_keeping_other_options(tmp_path):
+def test_existing_file_without_an_answer_is_left_alone(tmp_path):
+    # 방침(사용자 결정 2026-10-30): 파일이 있으면 무엇이 들었든 건드리지 않는다
     path = tmp_path / "optionInfo.xml"
-    path.write_text(AGREED.replace('      <EnableUsabilityLog value="1" />\n', "")
-                    .replace('      <EnableUsabilityLogSending value="1" />\n', ""),
-                    encoding="utf-8-sig")
-    assert decline_usability_consent(path) == "added"
-    assert _values(path) == {"MakeDumpFile": "1", "EnableUsabilityLog": "0",
-                             "EnableUsabilityLogSending": "0"}
-    assert path.read_bytes().startswith(b"\xef\xbb\xbf")
-    assert b"EnableUsabilityLog" not in (tmp_path / "optionInfo.xml.bak").read_bytes()
-    assert not (tmp_path / "optionInfo.xml.tmp").exists()
+    for body in (AGREED.replace('      <EnableUsabilityLog value="1" />\n', "")
+                 .replace('      <EnableUsabilityLogSending value="1" />\n', "").encode("utf-8-sig"),
+                 b"not xml", b""):
+        path.write_bytes(body)
+        assert decline_usability_consent(path) == "kept"
+        assert path.read_bytes() == body
+    assert not list(tmp_path.glob("optionInfo.xml.*"))  # no .bak / .tmp
 
 
-def test_failed_write_leaves_the_original_intact(tmp_path, monkeypatch):
+def test_failed_write_leaves_no_half_file(tmp_path, monkeypatch):
     import os
 
     path = tmp_path / "optionInfo.xml"
-    original = AGREED.replace('      <EnableUsabilityLog value="1" />\n', "")
-    path.write_text(original, encoding="utf-8-sig")
-    before = path.read_bytes()
 
     def boom(*_a, **_k):
         raise OSError("locked")
@@ -75,24 +86,7 @@ def test_failed_write_leaves_the_original_intact(tmp_path, monkeypatch):
         decline_usability_consent(path)
     except OSError:
         pass
-    assert path.read_bytes() == before
-    assert not (tmp_path / "optionInfo.xml.tmp").exists()
-
-
-def test_partial_answer_only_fills_the_gap(tmp_path):
-    path = tmp_path / "optionInfo.xml"
-    path.write_text(AGREED.replace('      <EnableUsabilityLogSending value="1" />\n', ""),
-                    encoding="utf-8-sig")
-    assert decline_usability_consent(path) == "added"
-    assert _values(path)["EnableUsabilityLog"] == "1"  # the user's own answer stays
-    assert _values(path)["EnableUsabilityLogSending"] == "0"
-
-
-def test_unparsable_file_is_left_alone(tmp_path):
-    path = tmp_path / "optionInfo.xml"
-    path.write_bytes(b"not xml")
-    assert decline_usability_consent(path) == "skipped"
-    assert path.read_bytes() == b"not xml"
+    assert not path.exists() and not (tmp_path / "optionInfo.xml.tmp").exists()
 
 
 def test_start_failure_message_points_at_a_waiting_window():

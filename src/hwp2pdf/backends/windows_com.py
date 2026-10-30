@@ -695,11 +695,11 @@ class WindowsComBackend:
         import win32com.client
 
         # A first-run consent window would hang this unseen Hangul: answer "decline"
-        # where this account has no answer yet (never "agree", never overwrite).
+        # where Hangul never ran under this account (no options file; never "agree", never edit).
         try:
             from hwp2pdf.hancom_options import decline_usability_consent, option_info_path
 
-            if decline_usability_consent() in ("created", "added"):
+            if decline_usability_consent() == "created":
                 sink.put(("log", translate(lang, "usability_consent_declined",
                                            path=option_info_path())))
         except Exception:
