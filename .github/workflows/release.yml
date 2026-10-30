@@ -1,13 +1,21 @@
 # Build every platform's artifacts and attach them to a release.
 #
 # Building needs neither Hancom Office nor COM -- only running a conversion
-# does -- so the Windows executables are built here too. Publishing a release is
-# all it takes to get the full set.
+# does -- so the Windows executables are built here too. Normally calver.yml
+# calls this on every merge to main (date tag -> draft release -> build ->
+# publish). Publishing a release by hand still builds the full set too.
 name: release
 
 on:
   release:
     types: [published]
+  # calver.yml: build into the draft release it just created for the date tag
+  workflow_call:
+    inputs:
+      tag:
+        description: "Release tag to build and upload to"
+        required: true
+        type: string
   # Lets an existing release be filled in after the fact.
   workflow_dispatch:
     inputs:

@@ -1,0 +1,65 @@
+name: calver
+
+# main 머지마다 날짜 버전 태그(vYYYY.MM.DD.N, KST)를 달고, 그 태그로 릴리스를 만들어
+# 모든 플랫폼 실행 파일을 올린다. 번호는 사람이 관리하지 않는다(version.py 는 빌드가 채운다).
+# jaix-kit 갱신 봇이 이 태그를 찾고, jaix setup 과 앱 자동 업데이트는 최신 릴리스 자산을 받는다
+# (https://github.com/jeju-inst/jaix-kit).
+#
+# 릴리스는 초안으로 만들고 빌드가 다 올라간 뒤에 공개한다. 앱 업데이트 확인과 jaix 는
+# releases/latest 를 보므로, 자산이 비어 있는 릴리스가 최신으로 보이면 그동안 받기가 실패한다.
+
+on:
+  push:
+    branches: [main]
+    # 문서·테스트만 바뀐 머지는 사용자에게 달라지는 게 없어 태그·빌드를 건너뛴다
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "tests/**"
+      - ".ai-context/**"
+
+concurrency: calver-tag
+
+jobs:
+  tag:
+    # 다른 저장소 코드가 이 저장소 태그 권한(contents: write)을 쥐므로 커밋으로 고정한다.
+    # 올릴 때는 jaix-kit 의 새 커밋을 확인하고 PR 로.
+    uses: jeju-inst/jaix-kit/.github/workflows/calver-tag.yml@fd8db15d7f0c377855f57864958ff5c4f7bdc2ce
+    permissions:
+      contents: write
+
+  # GITHUB_TOKEN 으로 만든 태그·릴리스는 release.yml 의 `release: published` 를 깨우지 않아
+  # 아래에서 직접 부른다
+  draft:
+    needs: tag
+    if: needs.tag.outputs.created == 'true'   # 앞선 실행이 이미 태그·릴리스한 커밋이면 건너뜀
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.tag.outputs.tag }}
+        run: |
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --draft --verify-tag \
+            --title "hwp2pdf ${TAG#v}" --generate-notes
+
+  build:
+    needs: [tag, draft]
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+    permissions:
+      contents: write
+
+  # 빌드가 하나라도 실패하면 초안으로 남는다 → 실패한 job 을 다시 돌리면 이어서 공개된다
+  publish:
+    needs: [tag, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.tag.outputs.tag }}
+        run: gh release edit "$TAG" -R "$GITHUB_REPOSITORY" --draft=false --latest
