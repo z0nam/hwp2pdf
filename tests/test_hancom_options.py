@@ -93,3 +93,12 @@ def test_unparsable_file_is_left_alone(tmp_path):
     path.write_bytes(b"not xml")
     assert decline_usability_consent(path) == "skipped"
     assert path.read_bytes() == b"not xml"
+
+
+def test_start_failure_message_points_at_a_waiting_window():
+    # 실측(2026-10-30): 동의창이 뜬 채 COM 이 "서버 실행에 실패했습니다"로 끝나면 이 메시지만 남는다
+    from hwp2pdf.i18n import translate
+
+    for lang, word in (("ko", "사용성 데이터 수집 동의"), ("en", "usability data")):
+        msg = translate(lang, "local_hwp_start_failed", detail="(-2146959355, ...)")
+        assert word in msg and msg.strip().splitlines()[-1].count(word) == 1
