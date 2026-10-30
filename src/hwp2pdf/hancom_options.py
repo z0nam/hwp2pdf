@@ -21,6 +21,8 @@ appended ``<Activation value="1" />``).
 from __future__ import annotations
 
 import os
+import re
+import sys
 from pathlib import Path
 
 #: Hancom Office 2022 keeps per-user options under this version folder
@@ -48,26 +50,60 @@ def option_info_path(version: str = OPTION_VERSION) -> Path | None:
     return Path(appdata) / "Hnc" / "User" / "Common" / version / "optionInfo.xml"
 
 
+def installed_version() -> str | None:
+    """HOfficeNNN from the COM server Hangul runs as (HWPFrame.HwpObject → LocalServer32),
+    e.g. ``…\\Office 2022\\HOffice120\\bin\\hwp.exe`` → ``"120"``. None if unknown."""
+    if not sys.platform.startswith("win"):
+        return None
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, r"HWPFrame.HwpObject\CLSID") as k:
+            clsid = winreg.QueryValue(k, None)
+    except OSError:
+        return None
+    for root in ("CLSID", r"WOW6432Node\CLSID"):
+        try:
+            with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, rf"{root}\{clsid}\LocalServer32") as k:
+                ver = version_from_server(winreg.QueryValue(k, None))
+        except OSError:
+            continue
+        if ver:
+            return ver
+    return None
+
+
+def version_from_server(server: str) -> str | None:
+    m = re.search(r"\\HOffice(\d+)\\", server, re.I)
+    return m.group(1) if m else None
+
+
 def decline_usability_consent(path: Path | None = None) -> str:
     """Record "동의 안 함" for an account Hangul has never run under. Returns:
 
     ``created`` (no options file: wrote :data:`MINIMAL`),
     ``kept`` (the file exists — left exactly as it is),
-    ``skipped`` (no %APPDATA%).
+    ``skipped`` (no %APPDATA%, or a Hangul other than the measured 2022 — its keys and
+    window are unverified, and its options live in another folder).
     """
     if path is None:
+        if installed_version() != OPTION_VERSION:
+            return "skipped"
         path = option_info_path()
     if path is None:
         return "skipped"
     if path.exists():
         return "kept"
     path.parent.mkdir(parents=True, exist_ok=True)
-    # written before Hangul starts, so nothing races us; tmp + replace keeps a failed
-    # write from leaving a half file Hangul would then read
+    # temp file, then a hard link: the link fails if Hangul created the file meanwhile
+    # (never replace it), and a failed write leaves no half file for Hangul to read
     tmp = path.with_name(path.name + ".tmp")
     try:
         tmp.write_bytes(MINIMAL.encode("utf-8-sig"))
-        os.replace(tmp, path)
+        try:
+            os.link(tmp, path)
+        except FileExistsError:
+            return "kept"
     finally:
         tmp.unlink(missing_ok=True)
     return "created"

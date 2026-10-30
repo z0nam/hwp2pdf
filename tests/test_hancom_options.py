@@ -81,7 +81,7 @@ def test_failed_write_leaves_no_half_file(tmp_path, monkeypatch):
     def boom(*_a, **_k):
         raise OSError("locked")
 
-    monkeypatch.setattr(os, "replace", boom)
+    monkeypatch.setattr(os, "link", boom)
     try:
         decline_usability_consent(path)
     except OSError:
@@ -96,3 +96,32 @@ def test_start_failure_message_points_at_a_waiting_window():
     for lang, word in (("ko", "사용성 데이터 수집 동의"), ("en", "usability data")):
         msg = translate(lang, "local_hwp_start_failed", detail="(-2146959355, ...)")
         assert word in msg and msg.strip().splitlines()[-1].count(word) == 1
+
+
+def test_never_replaces_a_file_hangul_made_meanwhile(tmp_path, monkeypatch):
+    import os
+
+    path = tmp_path / "optionInfo.xml"
+    real_link = os.link
+
+    def link_after_hangul(src, dst):
+        Path(dst).write_bytes(b"hangul wrote this")
+        return real_link(src, dst)
+
+    monkeypatch.setattr(os, "link", link_after_hangul)
+    assert decline_usability_consent(path) == "kept"
+    assert path.read_bytes() == b"hangul wrote this"
+    assert not (tmp_path / "optionInfo.xml.tmp").exists()
+
+
+def test_only_the_measured_hancom_2022(monkeypatch, tmp_path):
+    from hwp2pdf import hancom_options
+
+    monkeypatch.setenv("APPDATA", str(tmp_path))
+    monkeypatch.setattr(hancom_options, "installed_version", lambda: "130")
+    assert decline_usability_consent() == "skipped" and not any(tmp_path.rglob("optionInfo.xml"))
+    monkeypatch.setattr(hancom_options, "installed_version", lambda: "120")
+    assert decline_usability_consent() == "created"
+    assert hancom_options.version_from_server(
+        r"C:\Program Files (x86)\Hnc\Office 2022\HOffice120\bin\hwp.exe -Automation") == "120"
+    assert hancom_options.version_from_server(r"C:\Hwp\hwp.exe") is None
