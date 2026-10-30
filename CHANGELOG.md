@@ -1,10 +1,15 @@
 # Changelog
 
-이 파일은 [Keep a Changelog](https://keepachangelog.com/) 1.1.0 형식을 느슨하게 따릅니다. 버전 번호는 빌드 스크립트(`scripts/build_windows.ps1`)가 `yyyy.MM.dd.N` 형태로 자동 부여합니다.
+이 파일은 [Keep a Changelog](https://keepachangelog.com/) 1.1.0 형식을 느슨하게 따릅니다. 버전 번호는 `yyyy.MM.dd.N`(KST) 날짜 버전이며, main에 머지될 때마다 `.github/workflows/calver.yml`이 태그를 달고 릴리스를 만들어 모든 플랫폼 실행 파일을 올립니다. 릴리스 노트는 머지된 PR 목록으로 자동 생성되고, 이 파일의 `[Unreleased]`는 사람이 읽는 요약으로 따로 정리합니다.
 
 각 항목 옆 GitHub 링크는 그 버전의 release 페이지를 가리킵니다 — 다운로드 자산은 거기에 있습니다.
 
 ## [Unreleased]
+
+### Changed
+- **main 머지마다 자동 릴리스.** 날짜 태그 → 초안 릴리스 → 맥·윈도우·리눅스 빌드 → 공개가
+  사람 손 없이 이어집니다. 자산이 다 올라간 뒤에 공개하므로, 앱 자동 업데이트와 jaix가
+  빈 릴리스를 최신으로 잡지 않습니다. 문서·테스트만 바뀐 머지는 건너뜁니다.
 
 ### Added
 - **CLI `--local` / `HWP2PDF_LOCAL=1`** — 저장된 서버 설정이나 `HWP2PDF_SERVER_URL`을 무시하고
