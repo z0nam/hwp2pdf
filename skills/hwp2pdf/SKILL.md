@@ -12,6 +12,15 @@ description: 한컴오피스(한글)로 HWP/HWPX 파일이나 폴더를 PDF·DOC
 
 명령이 없으면 추측해서 다른 방법을 찾지 말고 "jaix setup을 다시 실행하세요"라고 알린다.
 
+**환경변수 `HWP2PDF_CLI`가 있으면 그 경로를 실행파일로 쓴다.** jaix가 관리하는 최신 사본이다. 관리자가 따로 깐 낡은 hwp2pdf가 PATH에서 먼저 잡힐 수 있어서다. 아래 예의 `hwp2pdf-cli` 자리에 그 경로를 따옴표로 넣는다.
+
+```
+& "$env:HWP2PDF_CLI" "<파일>" --pdf --local    # PowerShell
+"$HWP2PDF_CLI" "<파일>" --pdf --local          # bash(Git Bash)
+```
+
+변수가 비어 있으면 PATH의 `hwp2pdf-cli`를 쓴다.
+
 ## 기본 사용
 
 ```
