@@ -1,0 +1,10 @@
+{
+  "name": "hwp2pdf",
+  "displayName": "HWP → PDF 변환 (hwp2pdf)",
+  "description": "한컴오피스로 HWP/HWPX 파일·폴더를 PDF·DOCX·HWPX로 일괄 변환한다.",
+  "author": { "name": "Namun Cho", "url": "https://github.com/z0nam" },
+  "homepage": "https://github.com/z0nam/hwp2pdf",
+  "repository": "https://github.com/z0nam/hwp2pdf",
+  "license": "MIT",
+  "keywords": ["hwp", "hwpx", "pdf", "docx", "hancom", "한글", "변환"]
+}
