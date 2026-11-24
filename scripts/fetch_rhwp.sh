@@ -12,7 +12,7 @@
 # public, so a normal user can run this as-is.
 set -euo pipefail
 
-RHWP_VERSION="${1:-v0.8.4}"
+RHWP_VERSION="${1:-v0.9.1}"
 RHWP_REPO="edwardkim/rhwp"
 BASE="https://github.com/$RHWP_REPO/releases/download/$RHWP_VERSION"
 
