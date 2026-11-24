@@ -11,7 +11,7 @@
     releases are public.
 #>
 param(
-    [string]$Version = "v0.8.4",
+    [string]$Version = "v0.9.1",
     [string]$Repo = "edwardkim/rhwp"
 )
 

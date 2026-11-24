@@ -37,6 +37,24 @@ def test_env_var_is_honoured(tmp_path, monkeypatch):
     assert find_rhwp() == binary
 
 
+def test_hwp_agent_copy_is_preferred_over_the_bundled_one(tmp_path, monkeypatch):
+    from hwp2pdf.backends import local_rhwp
+
+    monkeypatch.delenv(RHWP_ENV_VAR, raising=False)
+    monkeypatch.setattr(local_rhwp.shutil, "which", lambda name: None)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "win"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg"))
+    shared = local_rhwp._hwp_agent_copy()[0]
+    bundled = tmp_path / "bundle" / "vendor" / "rhwp" / shared.name
+    for f in (shared, bundled):
+        f.parent.mkdir(parents=True)
+        f.write_text("")
+    monkeypatch.setattr(local_rhwp, "_vendored", lambda: (bundled,))
+    assert find_rhwp() == shared
+    shared.unlink()
+    assert find_rhwp() == bundled
+
+
 def test_preflight_without_a_binary_is_a_clear_refusal(monkeypatch):
     monkeypatch.setattr("hwp2pdf.backends.local_rhwp.find_rhwp", lambda explicit="": None)
     with pytest.raises(BackendUnavailable) as excinfo:

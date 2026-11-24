@@ -43,9 +43,25 @@ def _vendored() -> tuple:
     return tuple(dict.fromkeys(candidates))
 
 
+def _hwp_agent_copy() -> tuple:
+    """The rhwp that ``hwp-agent setup`` (and ``jaix setup``) downloads.
+
+    On a JAIX PC that copy is the one the toolkit lock keeps current, so it is
+    preferred over the copy bundled with this app -- one rhwp, one version.
+    Mirrors ``hwp_agent.convert.fetch_jar.data_dir``.
+    """
+    if sys.platform.startswith("win"):
+        base = os.environ.get("LOCALAPPDATA") or (Path.home() / "AppData" / "Local")
+        exe = "rhwp.exe"
+    else:
+        base = os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share")
+        exe = "rhwp"
+    return (Path(base) / "hwp-agent" / "rhwp" / exe,)
+
+
 #: Checked in order when no explicit path is configured.
 def known_locations() -> tuple:
-    return _vendored() + (
+    return _hwp_agent_copy() + _vendored() + (
         Path("/usr/local/bin/rhwp"),
         Path("/opt/homebrew/bin/rhwp"),
         # The sibling project that first vendored rhwp.
